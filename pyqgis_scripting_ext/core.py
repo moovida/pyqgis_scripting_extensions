@@ -2,16 +2,25 @@ from qgis.core import *
 from qgis.gui import *
 from PyQt5.QtGui import QColor
 
+ENDCAPSTYLE_ROUND = Qgis.EndCapStyle.Round
+ENDCAPSTYLE_FLAT = Qgis.EndCapStyle.Flat
+ENDCAPSTYLE_SQUARE = Qgis.EndCapStyle.Square
+
+JOINSTYLE_ROUND = Qgis.JoinStyle.Round
+JOINSTYLE_BEVEL = Qgis.JoinStyle.Bevel
+JOINSTYLE_MITER = Qgis.JoinStyle.Miter
+
+
 class HGeometry:
     def __init__(self, geometry: any):
         self.geometry = geometry
-        self.gqsGeometry = QgsGeometry(self.geometry.clone())
+        self.qgsGeometry = QgsGeometry(self.geometry.clone())
 
     def __str__(self):
         return self.asWkt()
     
     def asWkt(self) -> str:
-        return self.geometry.asWkt()
+        return self.qgsGeometry.asWkt()
     
     def coordinates(self) -> list[tuple[float, float]]:
         if isinstance(self.geometry, HPoint):
@@ -39,10 +48,13 @@ class HGeometry:
         return self.geometry.area()
     
     def length(self) -> float:
-        return self.gqsGeometry.length()
+        return self.qgsGeometry.length()
+    
+    def centroid(self):
+        return HGeometry.from_specialized(self.geometry.centroid())
     
     def distance(self, other) -> float:
-        return self.gqsGeometry.distance(QgsGeometry(other.geometry.clone()))
+        return self.qgsGeometry.distance(QgsGeometry(other.geometry.clone()))
     
     def bbox(self) -> list[float]:
         rect = self.geometry.boundingBox()
@@ -60,17 +72,35 @@ class HGeometry:
         return HGeometry.from_specialized(childGeom)
     
     def intersects(self, other) -> bool:
-        return self.gqsGeometry.intersects(QgsGeometry(other.geometry.clone()))
+        return self.qgsGeometry.intersects(QgsGeometry(other.geometry.clone()))
     
     def contains(self, other) -> bool:
-        return self.gqsGeometry.contains(QgsGeometry(other.geometry.clone()))
+        return self.qgsGeometry.contains(QgsGeometry(other.geometry.clone()))
     
     def touches(self, other) -> bool:
-        return self.gqsGeometry.touches(QgsGeometry(other.geometry.clone()))
+        return self.qgsGeometry.touches(QgsGeometry(other.geometry.clone()))
     
-    # def intersection(self, other):
-    #     return HGeometry.from_specialized(self.gqsGeometry.intersection(QgsGeometry(other.geometry.clone())))
-
+    def intersection(self, other):
+        intersectionGeom =  self.qgsGeometry.intersection(QgsGeometry(other.geometry.clone()))
+        return HGeometry.from_specialized(intersectionGeom)
+    
+    def symdifference(self, other):
+        symdifferenceGeom =  self.qgsGeometry.symDifference(QgsGeometry(other.geometry.clone()))
+        return HGeometry.from_specialized(symdifferenceGeom)
+    
+    def union(self, other):
+        unionGeom =  self.qgsGeometry.combine(QgsGeometry(other.geometry.clone()))
+        return HGeometry.from_specialized(unionGeom)
+    
+    def difference(self, other):
+        differenceGeom =  self.qgsGeometry.difference(QgsGeometry(other.geometry.clone()))
+        return HGeometry.from_specialized(differenceGeom)
+    
+    def buffer(self, distance: float, segments: int = 8, joinstyle: int = JOINSTYLE_ROUND, capstyle: int = ENDCAPSTYLE_ROUND):
+        bufferGeom = self.qgsGeometry.buffer(distance, segments, capstyle, joinstyle, 1)
+        return HGeometry.from_specialized(bufferGeom)
+    
+    
 
     @staticmethod
     def fromWkt(wkt: str):

@@ -242,6 +242,29 @@ class TestPyQgisExt(unittest.TestCase):
         self.assertFalse(self.g1.contains(self.g5))
         self.assertFalse(self.g1.contains(self.g6))
 
+    def test_functions(self):
+        # test intersection
+        intersectionGeom = self.g1.intersection(self.g6)
+        self.assertEquals(intersectionGeom.asWkt(), "Polygon ((5 5, 5 3, 3 3, 3 5, 5 5))")
+
+        # test symdiff
+        symdiffGeom = self.g1.symdifference(self.g6)
+        self.assertEquals(symdiffGeom.asWkt(), "MultiPolygon (((0 5, 3 5, 3 3, 5 3, 5 0, 0 0, 0 5)),((5 5, 3 5, 3 6, 6 6, 6 3, 5 3, 5 5)))")
+
+        # test union
+        unionGeom = self.g1.union(self.g6)
+        self.assertEquals(unionGeom.asWkt(), "Polygon ((0 5, 3 5, 3 6, 6 6, 6 3, 5 3, 5 0, 0 0, 0 5))")
+
+        # test difference
+        diffGeom = self.g1.difference(self.g6)
+        self.assertEquals(diffGeom.asWkt(), "Polygon ((0 5, 3 5, 3 3, 5 3, 5 0, 0 0, 0 5))")
+
+    def test_buffer(self):
+        bufferGeom = self.g1.buffer(1, 1, JOINSTYLE_BEVEL, ENDCAPSTYLE_SQUARE)
+        print(bufferGeom.asWkt())
+        self.assertEquals(bufferGeom.asWkt(), "Polygon ((0 -1, -1 0, -1 5, 0 6, 5 6, 6 5, 6 0, 5 -1, 0 -1))")
+
+
     # def test_mapcanvas(self):
     #     canvas = HMapCanvas.new()
 
@@ -260,6 +283,7 @@ class TestPyQgisExt(unittest.TestCase):
 
     #     # show
     #     canvas.show()
+
 
 
 
