@@ -100,8 +100,6 @@ class HGeometry:
         bufferGeom = self.qgsGeometry.buffer(distance, segments, capstyle, joinstyle, 1)
         return HGeometry.from_specialized(bufferGeom)
     
-    
-
     @staticmethod
     def fromWkt(wkt: str):
         geom = QgsGeometry.fromWkt(wkt)
@@ -292,3 +290,53 @@ class HMapCanvas():
 
     def show(self):
         self.canvas.show()
+
+
+class HCrs:
+
+    def from_srid(self, srid):
+        if isinstance(srid, str):
+            epsg = srid
+        elif isinstance(srid, int):
+            epsg = f"EPSG:{srid}"
+        else:
+            raise ValueError("The SRID must be a string or an integer")
+        self.fromCrs = QgsCoordinateReferenceSystem(epsg)
+
+    def to_srid(self, srid: int):
+        if isinstance(srid, str):
+            epsg = srid
+        elif isinstance(srid, int):
+            epsg = f"EPSG:{srid}"
+        else:
+            raise ValueError("The SRID must be a string or an integer")
+        self.toCrs = QgsCoordinateReferenceSystem(epsg)
+
+    def from_crs(self, crs: QgsCoordinateReferenceSystem):
+        self.fromCrs = crs
+
+    def to_crs(self, crs: QgsCoordinateReferenceSystem):
+        self.toCrs = crs
+
+    def transform(self, geometry: HGeometry) -> HGeometry:
+        if not self.fromCrs or not self.toCrs:
+            raise ValueError("The from and to CRS must be set")
+        if not self.crsTransf:
+            self.crsTransf = QgsCoordinateTransform(self.from_crs, self.to_crs, QgsProject.instance())
+        qgsGeometry = geometry.qgsGeometry.clone()
+        QgsGeometry.transform(qgsGeometry, self.crsTransf)
+        return HGeometry.from_specialized(qgsGeometry)
+    
+    def trasnfrom(self, x:float, y:float) -> tuple[float, float]:
+        if not self.fromCrs or not self.toCrs:
+            raise ValueError("The from and to CRS must be set")
+        if not self.crsTransf:
+            self.crsTransf = QgsCoordinateTransform(self.from_crs, self.to_crs, QgsProject.instance())
+        qgsPointXY = self.crsTransf.transform(x, y)
+        return (qgsPointXY.x(), qgsPointXY.y())
+
+    @staticmethod
+    def current_crs():
+        return QgsProject.instance().crs()
+
+    
