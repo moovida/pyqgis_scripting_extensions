@@ -111,32 +111,34 @@ class TestPyQgisExt(unittest.TestCase):
     def test_child_geometries(self):
         coords1 = [(1, 2), (3, 4), (5, 6), (7, 8), (1, 2)]
         poly = HPolygon.fromCoords(coords1)
-        self.assertEqual(poly.child_count(), 1)
+        self.assertEqual(len(poly.geometries()), 1)
 
         coords1 = [(1, 2), (3, 4), (5, 6), (7, 8), (1, 2)]
         poly1 = HPolygon.fromCoords(coords1)
         coords2 = [(9, 10), (11, 12), (13, 14), (15, 16), (9, 10)]
         poly2 = HPolygon.fromCoords(coords2)
         mp = HMultiPolygon([poly1, poly2])
-        self.assertEqual(mp.child_count(), 2)
-        child1 = mp.child(0)
+
+        subGeometries = mp.geometries()
+        self.assertEqual(len(subGeometries), 2)
+        child1 = subGeometries[0]
         self.assertIsInstance(child1, HPolygon)
 
         ls = HLineString.fromCoords([(1, 2), (3, 4), (5, 6), (7, 8)])
-        self.assertEqual(ls.child_count(), 1)
+        self.assertEqual(len(ls.geometries()), 1)
 
         ls1 = HLineString.fromCoords([(1, 2), (3, 4)])
         ls2 = HLineString.fromCoords([(5, 6), (7, 8)])
         mls = HMultiLineString([ls1, ls2])
-        self.assertEqual(mls.child_count(), 2)
+        self.assertEqual(len(mls.geometries()), 2)
 
         p = HPoint(1, 2)
-        self.assertEqual(p.child_count(), 1)
+        self.assertEqual(len(p.geometries()), 1)
 
         p1 = HPoint(1, 2)
         p2 = HPoint(3, 4)
         mp = HMultiPoint([p1, p2])
-        self.assertEqual(mp.child_count(), 2)
+        self.assertEqual(len(mp.geometries()), 2)
 
     def test_geometry_coordinates(self):
         coords = [(1.0, 2.0), (3.0, 4.0), (5.0, 6.0), (7.0, 8.0), (1.0, 2.0)]
@@ -255,14 +257,76 @@ class TestPyQgisExt(unittest.TestCase):
         unionGeom = self.g1.union(self.g6)
         self.assertEquals(unionGeom.asWkt(), "Polygon ((0 5, 3 5, 3 6, 6 6, 6 3, 5 3, 5 0, 0 0, 0 5))")
 
+        unionGeom = self.g1 + self.g6
+        self.assertEquals(unionGeom.asWkt(), "Polygon ((0 5, 3 5, 3 6, 6 6, 6 3, 5 3, 5 0, 0 0, 0 5))")
+
         # test difference
         diffGeom = self.g1.difference(self.g6)
+        self.assertEquals(diffGeom.asWkt(), "Polygon ((0 5, 3 5, 3 3, 5 3, 5 0, 0 0, 0 5))")
+
+        diffGeom = self.g1 - self.g6
         self.assertEquals(diffGeom.asWkt(), "Polygon ((0 5, 3 5, 3 3, 5 3, 5 0, 0 0, 0 5))")
 
     def test_buffer(self):
         bufferGeom = self.g1.buffer(1, 1, JOINSTYLE_BEVEL, ENDCAPSTYLE_SQUARE)
         print(bufferGeom.asWkt())
         self.assertEquals(bufferGeom.asWkt(), "Polygon ((0 -1, -1 0, -1 5, 0 6, 5 6, 6 5, 6 0, 5 -1, 0 -1))")
+
+    def test_transform(self):
+        crsHelper = HCrs()
+        crsHelper.from_srid(4326)
+        crsHelper.to_srid(32632)
+
+        point4326 = HPoint(11, 46)
+        point32632 = crsHelper.transform(point4326)
+
+        self.assertEquals(int(point32632.x), 654863)
+        self.assertEquals(int(point32632.y), 5095992)
+
+    def test_vectorlayer_read(self):
+        # read the vector layer
+        layer = HVectorLayer.open("tests/ne.gpkg", "ne_10m_populated_places")
+        
+        self.assertEquals(layer.srid(), "EPSG:4326")
+        self.assertEquals(layer.size(), 58)
+
+        fields = layer.fields()
+        self.assertEquals(fields["SCALERANK"], "Integer64")
+        self.assertEquals(fields["ADM0_A3"], "String")
+
+        # get all features
+        features = layer.features()
+        self.assertEquals(len(features), 58)
+
+        # get features with filter
+        features = layer.features("POP_MAX > 3300000")
+        self.assertEquals(len(features), 1)
+        cityName = features[0].attributes['NAME']
+        self.assertEquals(cityName, "Rome")
+
+        # get features with bbox filter
+        features = layer.features(bbox=[12, 41, 13, 42])
+        self.assertEquals(len(features), 2)
+
+        # get features in polygon geometry
+        poly = HPolygon.fromCoords([[12, 41], [13, 41], [13, 42], [12, 42], [12, 41]])
+        features = layer.features(geometryfilter=poly)
+        self.assertEquals(len(features), 2)
+
+        self.assertIsInstance(features[0].geometry, HPoint)
+
+    def test_vectorlayer_write(self):
+        fields = {
+            "id": "Integer",
+            "name": "String",
+        }
+        layer = HVectorLayer.new("test", "Point", "EPSG:4326", fields)
+        layer.add_feature(HPoint(-122.42, 37.78), [1, "San Francisco"])
+        layer.add_feature(HPoint(-73.98, 40.47), [2, "New York"])
+
+        self.assertEquals(len(layer.features()), 2)
+
+        layer.dump_to_gpkg("/home/hydrologis/development/pyqgis_scripting_extensions/tests/test.gpkg")
 
 
     # def test_mapcanvas(self):

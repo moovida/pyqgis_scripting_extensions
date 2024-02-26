@@ -1,5 +1,6 @@
 from qgis.core import *
 from qgis.gui import *
+import os
 from PyQt5.QtGui import QColor
 
 ENDCAPSTYLE_ROUND = Qgis.EndCapStyle.Round
@@ -12,7 +13,7 @@ JOINSTYLE_MITER = Qgis.JoinStyle.Miter
 
 
 class HGeometry:
-    def __init__(self, geometry: any):
+    def __init__(self, geometry: QgsAbstractGeometry):
         self.geometry = geometry
         self.qgsGeometry = QgsGeometry(self.geometry.clone())
 
@@ -60,16 +61,11 @@ class HGeometry:
         rect = self.geometry.boundingBox()
         return [rect.xMinimum(), rect.yMinimum(), rect.xMaximum(), rect.yMaximum()]
     
-    def child_count(self) -> int:
+    def geometries(self):
         if isinstance(self.geometry, QgsPoint) or isinstance(self.geometry, QgsCurve) or isinstance(self.geometry, QgsLineString) or isinstance(self.geometry, QgsPolygon):
-            return 1
-        return self.geometry.childCount()
-    
-    def child(self, index: int):
-        if isinstance(self.geometry, QgsPoint) or isinstance(self.geometry, QgsCurve) or isinstance(self.geometry, QgsLineString) or isinstance(self.geometry, QgsPolygon):
-            return HGeometry.from_specialized(self.geometry)                
-        childGeom = self.geometry.childGeometry(index)
-        return HGeometry.from_specialized(childGeom)
+            return [HGeometry.from_specialized(self.geometry)]
+        count = self.geometry.childCount()
+        return [HGeometry.from_specialized(self.geometry.childGeometry(i)) for i in range(count)]
     
     def intersects(self, other) -> bool:
         return self.qgsGeometry.intersects(QgsGeometry(other.geometry.clone()))
@@ -91,10 +87,16 @@ class HGeometry:
     def union(self, other):
         unionGeom =  self.qgsGeometry.combine(QgsGeometry(other.geometry.clone()))
         return HGeometry.from_specialized(unionGeom)
+
+    def __add__(self, other):
+        return self.union(other)
     
     def difference(self, other):
         differenceGeom =  self.qgsGeometry.difference(QgsGeometry(other.geometry.clone()))
         return HGeometry.from_specialized(differenceGeom)
+    
+    def __sub__(self, other):
+        return self.difference(other)
     
     def buffer(self, distance: float, segments: int = 8, joinstyle: int = JOINSTYLE_ROUND, capstyle: int = ENDCAPSTYLE_ROUND):
         bufferGeom = self.qgsGeometry.buffer(distance, segments, capstyle, joinstyle, 1)
@@ -147,6 +149,12 @@ class HPoint(HGeometry):
     @classmethod
     def fromQgsPoint(cls, point: QgsPoint):
         return cls(point.x(), point.y())
+    
+    def x(self) -> float:
+        return self.geometry.x()
+    
+    def y(self) -> float:
+        return self.geometry.y()
     
     
 
@@ -215,6 +223,7 @@ class HPolygon(HGeometry):
         if coords[0] != coords[-1]:
             raise ValueError("The first and last point of an interior ring must be equal")
         self.geometry.addInteriorRing(ring.geometry)
+        self.qgsGeometry = QgsGeometry(self.geometry.clone())
 
     def exterior_ring(self) -> HLineString:
         return HGeometry.from_specialized(self.geometry.exteriorRing())
@@ -293,6 +302,10 @@ class HMapCanvas():
 
 
 class HCrs:
+    def __init__(self):
+        self.fromCrs = None
+        self.toCrs = None
+        self.crsTransf = None
 
     def from_srid(self, srid):
         if isinstance(srid, str):
@@ -303,7 +316,7 @@ class HCrs:
             raise ValueError("The SRID must be a string or an integer")
         self.fromCrs = QgsCoordinateReferenceSystem(epsg)
 
-    def to_srid(self, srid: int):
+    def to_srid(self, srid):
         if isinstance(srid, str):
             epsg = srid
         elif isinstance(srid, int):
@@ -322,12 +335,12 @@ class HCrs:
         if not self.fromCrs or not self.toCrs:
             raise ValueError("The from and to CRS must be set")
         if not self.crsTransf:
-            self.crsTransf = QgsCoordinateTransform(self.from_crs, self.to_crs, QgsProject.instance())
-        qgsGeometry = geometry.qgsGeometry.clone()
+            self.crsTransf = QgsCoordinateTransform(self.fromCrs, self.toCrs, QgsProject.instance())
+        qgsGeometry = QgsGeometry(geometry.geometry.clone())
         QgsGeometry.transform(qgsGeometry, self.crsTransf)
         return HGeometry.from_specialized(qgsGeometry)
     
-    def trasnfrom(self, x:float, y:float) -> tuple[float, float]:
+    def transfrom(self, x:float, y:float) -> tuple[float, float]:
         if not self.fromCrs or not self.toCrs:
             raise ValueError("The from and to CRS must be set")
         if not self.crsTransf:
@@ -339,4 +352,99 @@ class HCrs:
     def current_crs():
         return QgsProject.instance().crs()
 
+class HFeature:
+    def __init__(self, feature: QgsFeature):
+        self.feature = feature
+        self.geometry = HGeometry.from_specialized(self.feature.geometry())
+        self.attributes = self.feature.attributeMap()
+
+    @staticmethod
+    def create(geometry: HGeometry, attributes: dict[str, any]):
+        feature = QgsFeature()
+        feature.setGeometry(QgsGeometry(geometry.geometry.clone()))
+        feature.setAttributes(attributes)
+        return HFeature(feature)
     
+
+
+class HVectorLayer:
+    def __init__(self, layer: QgsVectorLayer, isReadOnly: bool):
+        self.layer = layer
+        self.isReadOnly = isReadOnly
+
+    @staticmethod
+    def open(path: str, table_name: str):
+        # if it is a geopackage, the table name must be specified
+        if path.endswith(".gpkg"):
+            uri = f"{path}|layername={table_name}"
+            layer = QgsVectorLayer(uri, table_name, "ogr")
+        elif path.endswith(".shp"):
+            # get file name without extension from path
+            layer_name = os.path.splitext(os.path.basename(path))[0]
+            layer = QgsVectorLayer(path, layer_name, "ogr")
+        else:
+            raise ValueError(f"Unsupported file format:{path}")
+        return HVectorLayer(layer, True)
+    
+    @staticmethod
+    def new(name: str, geometry_type: str, srid: int, fields: dict[str, str]):
+        definition = f"{geometry_type}?crs=epsg:{srid}"
+        for fname, type in fields.items():
+            definition += f"&field={fname}:{type}"
+        layer = QgsVectorLayer(definition, name, "memory")
+        return HVectorLayer(layer, False)
+
+    def srid(self):
+        return self.layer.crs().authid()
+    
+    def fields(self) -> dict:
+        fieldsDict = {}
+        for field in self.layer.fields():
+            fieldsDict[field.name()] = field.typeName()
+        return fieldsDict
+    
+    def bbox(self) -> list[float]:
+        qgsRectangle = self.layer.extent()
+        return [qgsRectangle.xMinimum(), qgsRectangle.yMinimum(), qgsRectangle.xMaximum(), qgsRectangle.yMaximum()]
+
+    def size(self) -> int:
+        return self.layer.featureCount()
+    
+    def features(self, filter:str = None, bbox:list[float] = None, geometryfilter:HGeometry = None) -> list[HFeature]:
+        features = None
+        if filter:
+            features = self.layer.getFeatures(QgsFeatureRequest().setFilterExpression(filter))
+        elif bbox:
+            rect = QgsRectangle(*bbox)
+            features = self.layer.getFeatures(QgsFeatureRequest().setFilterRect(rect))
+        elif geometryfilter:
+            features = self.layer.getFeatures(QgsFeatureRequest().setFilterRect(geometryfilter.geometry.boundingBox()))
+            # then filter out manually by looping and intersecting
+            features = [f for f in features if f.geometry().intersects(geometryfilter.qgsGeometry)]
+        else:
+            features = self.layer.getFeatures()
+
+        return [HFeature(f) for f in features]
+
+    def add_feature(self, geometry: HGeometry, attributes: list[any]):
+        feature = QgsFeature()
+        feature.setGeometry(QgsGeometry(geometry.geometry.clone()))
+        feature.setAttributes(attributes)
+        self.layer.dataProvider().addFeature(feature)
+    
+    def add_features(self, features: list[HFeature]):
+        self.layer.dataProvider().addFeatures([f.feature for f in features])
+
+    def dump_to_gpkg(self, path: str, overwrite: bool = False, encoding: str = "UTF-8"):
+        saveOptions = QgsVectorFileWriter.SaveVectorOptions()
+        saveOptions.driverName = 'GPKG'
+        saveOptions.layerName = self.layer.name()
+        if overwrite:
+            saveOptions.actionOnExistingFile = QgsVectorFileWriter.ActionOnExistingFile.CreateOrOverwriteFile
+        else:
+            saveOptions.actionOnExistingFile = QgsVectorFileWriter.ActionOnExistingFile.CreateOrOverwriteLayer
+        saveOptions.fileEncoding = encoding
+        QgsVectorFileWriter.writeAsVectorFormat(self.layer, path, saveOptions)
+
+    def add_to_map(self):
+        QgsProject.instance().addMapLayer(self.layer)
