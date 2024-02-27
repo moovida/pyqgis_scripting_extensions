@@ -62,6 +62,7 @@ class TestPyQgisExt(unittest.TestCase):
 
         self.assertIsInstance(poly, HPolygon)
         self.assertIsInstance(poly.geometry, QgsPolygon)
+        self.assertEqual(poly.interior_rings_count(), 1)
         self.assertEqual(poly.asWkt(), "Polygon ((1 2, 3 4, 5 6, 7 8, 1 2),(9 10, 11 12, 13 14, 9 10))")
 
     def test_HMultiPoint(self):
@@ -108,6 +109,18 @@ class TestPyQgisExt(unittest.TestCase):
         self.assertIsInstance(mp.geometry, QgsMultiPolygon)
         self.assertEqual(mp.asWkt(), "MultiPolygon (((1 2, 3 4, 5 6, 7 8, 1 2)),((9 10, 11 12, 13 14, 15 16, 9 10)))")
 
+    def test_HGeometryCollection(self):
+        p1 = HPoint(1, 2)
+        p2 = HPoint(3, 4)
+        mp = HMultiPoint([p1, p2])
+        ls1 = HLineString.fromCoords([(1, 2), (3, 4)])
+        ls2 = HLineString.fromCoords([(5, 6), (7, 8)])
+        mls = HMultiLineString([ls1, ls2])
+        gc = HGeometryCollection([mp, mls])
+        self.assertIsInstance(gc, HGeometryCollection)
+        self.assertIsInstance(gc.geometry, QgsGeometryCollection)
+        self.assertEqual(gc.asWkt(), "GeometryCollection (MultiPoint ((1 2),(3 4)),MultiLineString ((1 2, 3 4),(5 6, 7 8)))")
+
     def test_child_geometries(self):
         coords1 = [(1, 2), (3, 4), (5, 6), (7, 8), (1, 2)]
         poly = HPolygon.fromCoords(coords1)
@@ -143,30 +156,43 @@ class TestPyQgisExt(unittest.TestCase):
     def test_geometry_coordinates(self):
         coords = [(1.0, 2.0), (3.0, 4.0), (5.0, 6.0), (7.0, 8.0), (1.0, 2.0)]
         poly = HPolygon.fromCoords(coords)
-        self.assertEqual(poly.coordinates(), coords)
+        self.assertTrue(self.coordsEqual(poly.coordinates(), coords))
 
         coords1 = [(1, 2), (3, 4), (5, 6), (7, 8), (1, 2)]
         poly1 = HPolygon.fromCoords(coords1)
         coords2 = [(9, 10), (11, 12), (13, 14), (15, 16), (9, 10)]
         poly2 = HPolygon.fromCoords(coords2)
         mp = HMultiPolygon([poly1, poly2])
-        self.assertEqual(mp.coordinates(), [coords1, coords2])
+        self.assertTrue(self.coordsEqual2(mp.coordinates(), [coords1, coords2]))
 
         coords = [(1, 2), (3, 4)]
         ls = HLineString.fromCoords(coords)
-        self.assertEqual(ls.coordinates(), coords)
+        self.assertTrue(self.coordsEqual(ls.coordinates(), coords))
 
         coords1 = [(1, 2), (3, 4), (5, 6), (7, 8)]
         coords2 = [(9, 10), (11, 12), (13, 14), (15, 16)]
         mls = HMultiLineString.fromCoords([coords1, coords2])
-        self.assertEqual(mls.coordinates(), [coords1, coords2])
+        self.assertTrue(self.coordsEqual2(mls.coordinates(), [coords1, coords2]))
 
         coords = [(1, 2), (3, 4)]
         mp = HMultiPoint.fromCoords(coords)
-        self.assertEqual(mp.coordinates(), coords)
+        self.assertTrue(self.coordsEqual(mp.coordinates(), coords))
 
         p = HPoint(1, 2)
-        self.assertEqual(p.coordinates(), [(1, 2)])
+        self.assertTrue(self.coordsEqual(p.coordinates(), [(1, 2)]))
+
+    def coordsEqual(self, coords1:list[float], coords2:list[float]):
+        for i in range(len(coords1)):
+            if coords1[i][0] != coords2[i][0] or coords1[i][1] != coords2[i][1]:
+                return False
+        return True
+
+    def coordsEqual2(self, coords1:list[list[float]], coords2:list[list[float]]):
+        for i in range(len(coords1)):
+            for j in range(len(coords1[i])):
+                if coords1[i][j][0] != coords2[i][j][0] or coords1[i][j][1] != coords2[i][j][1]:
+                    return False
+        return True
 
 
     def test_geometry_from_wkt(self):
@@ -282,6 +308,10 @@ class TestPyQgisExt(unittest.TestCase):
 
         self.assertEquals(int(point32632.x), 654863)
         self.assertEquals(int(point32632.y), 5095992)
+
+        point4326back = crsHelper.transform(point32632, inverse=True)
+        self.assertEquals(round(point4326back.x), 11)
+        self.assertEquals(round(point4326back.y), 46)
 
     def test_vectorlayer_read(self):
         # read the vector layer
