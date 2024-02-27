@@ -326,7 +326,36 @@ class TestPyQgisExt(unittest.TestCase):
 
         self.assertEquals(len(layer.features()), 2)
 
-        layer.dump_to_gpkg("/home/hydrologis/development/pyqgis_scripting_extensions/tests/test.gpkg")
+        # test geopackage
+        error = layer.dump_to_gpkg("tests/test.gpkg", overwrite=True)
+        if(error):
+            print(error )
+        self.assertIsNone(error)
+        self.assertTrue(os.path.exists("tests/test.gpkg"))
+        os.remove("tests/test.gpkg")
+        if os.path.exists("tests/test.gpkg-shm"):
+            os.remove("tests/test.gpkg-shm")
+        if os.path.exists("tests/test.gpkg-wal"):
+            os.remove("tests/test.gpkg-wal")
+        
+        # test shp
+        error = layer.dump_to_shp("tests/test.shp")
+        if(error):
+            print(error )
+        self.assertIsNone(error)
+        self.assertTrue(os.path.exists("tests/test.shp"))
+        os.remove("tests/test.shp")
+        if os.path.exists("tests/test.shx"):
+            os.remove("tests/test.shx")
+        if os.path.exists("tests/test.dbf"):
+            os.remove("tests/test.dbf")
+        if os.path.exists("tests/test.prj"):
+            os.remove("tests/test.prj")
+        if os.path.exists("tests/test.cpg"):
+            os.remove("tests/test.cpg")
+
+        
+        
 
 
     # def test_mapcanvas(self):

@@ -444,7 +444,21 @@ class HVectorLayer:
         else:
             saveOptions.actionOnExistingFile = QgsVectorFileWriter.ActionOnExistingFile.CreateOrOverwriteLayer
         saveOptions.fileEncoding = encoding
-        QgsVectorFileWriter.writeAsVectorFormat(self.layer, path, saveOptions)
+        transform_context = QgsProject.instance().transformContext()
+        error = QgsVectorFileWriter.writeAsVectorFormatV3(self.layer, path, transform_context, saveOptions)
+        if error[0] != QgsVectorFileWriter.NoError:
+            return error[1]
+        return None
+
+    def dump_to_shp(self, path: str, encoding: str = "UTF-8"):
+        saveOptions = QgsVectorFileWriter.SaveVectorOptions()
+        saveOptions.driverName = 'ESRI Shapefile'
+        saveOptions.fileEncoding = encoding
+        transform_context = QgsProject.instance().transformContext()
+        error = QgsVectorFileWriter.writeAsVectorFormatV3(self.layer, path, transform_context, saveOptions)
+        if error[0] != QgsVectorFileWriter.NoError:
+            return error[1]
+        return None
 
     def add_to_map(self):
         QgsProject.instance().addMapLayer(self.layer)
