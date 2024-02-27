@@ -24,6 +24,9 @@ class HGeometry:
         return self.qgsGeometry.asWkt()
     
     def coordinates(self) -> list[tuple[float, float]]:
+        """
+        Get the coordinates of the geometry.
+        """
         if isinstance(self.geometry, HPoint):
             return [(self.x, self.y)]  
         elif isinstance(self.geometry, HLineString):
@@ -62,6 +65,11 @@ class HGeometry:
         return [rect.xMinimum(), rect.yMinimum(), rect.xMaximum(), rect.yMaximum()]
     
     def geometries(self):
+        """
+        Get the child geometries of the geometry.
+
+        If the geometry is a point, line or polygon, it returns a list with the geometry itself.
+        """
         if isinstance(self.geometry, QgsPoint) or isinstance(self.geometry, QgsCurve) or isinstance(self.geometry, QgsLineString) or isinstance(self.geometry, QgsPolygon):
             return [HGeometry.from_specialized(self.geometry)]
         count = self.geometry.childCount()
@@ -109,6 +117,9 @@ class HGeometry:
 
     @staticmethod
     def from_specialized(geom: any):
+        """
+        Create a HGeometry object from a specialized geometry object (Qgs*).
+        """
         if isinstance(geom, QgsGeometry):
             geom = geom.constGet()
 
@@ -145,10 +156,6 @@ class HPoint(HGeometry):
             self.y = y
             self.geometry = QgsPoint(x, y)
         super().__init__(self.geometry)
-    
-    @classmethod
-    def fromQgsPoint(cls, point: QgsPoint):
-        return cls(point.x(), point.y())
     
     def x(self) -> float:
         return self.geometry.x()
@@ -332,6 +339,9 @@ class HCrs:
         self.toCrs = crs
 
     def transform(self, geometry: HGeometry) -> HGeometry:
+        """
+        Transform a geometry from the fromCrs to the toCrs.
+        """
         if not self.fromCrs or not self.toCrs:
             raise ValueError("The from and to CRS must be set")
         if not self.crsTransf:
@@ -341,6 +351,9 @@ class HCrs:
         return HGeometry.from_specialized(qgsGeometry)
     
     def transfrom(self, x:float, y:float) -> tuple[float, float]:
+        """
+        Transform a point from the fromCrs to the toCrs.
+        """
         if not self.fromCrs or not self.toCrs:
             raise ValueError("The from and to CRS must be set")
         if not self.crsTransf:
@@ -350,6 +363,9 @@ class HCrs:
 
     @staticmethod
     def current_crs():
+        """
+        Get the CRS of the current project.
+        """
         return QgsProject.instance().crs()
 
 class HFeature:
@@ -360,6 +376,12 @@ class HFeature:
 
     @staticmethod
     def create(geometry: HGeometry, attributes: dict[str, any]):
+        """
+        Create a new feature based on the givengeometry and attributes.
+
+        The attributes must be a dictionary with the field names as keys 
+        and the same order as the schema they will be written to..
+        """
         feature = QgsFeature()
         feature.setGeometry(QgsGeometry(geometry.geometry.clone()))
         feature.setAttributes(attributes)
@@ -374,6 +396,11 @@ class HVectorLayer:
 
     @staticmethod
     def open(path: str, table_name: str):
+        """
+        Open a vector layer from a file path.
+        
+        If the file is a geopackage, the table name must be specified.
+        """
         # if it is a geopackage, the table name must be specified
         if path.endswith(".gpkg"):
             uri = f"{path}|layername={table_name}"
@@ -388,29 +415,57 @@ class HVectorLayer:
     
     @staticmethod
     def new(name: str, geometry_type: str, srid: int, fields: dict[str, str]):
+        """
+        Create a new vector layer in memory.
+        """
         definition = f"{geometry_type}?crs=epsg:{srid}"
         for fname, type in fields.items():
             definition += f"&field={fname}:{type}"
         layer = QgsVectorLayer(definition, name, "memory")
         return HVectorLayer(layer, False)
 
-    def srid(self):
+    def srid(self) -> str:
+        """
+        Get the SRID of the layer.
+
+        It is of the form "EPSG:xxxx"
+        """
         return self.layer.crs().authid()
     
     def fields(self) -> dict:
+        """
+        Get the field namnes and types of the layer.
+        """
         fieldsDict = {}
         for field in self.layer.fields():
             fieldsDict[field.name()] = field.typeName()
         return fieldsDict
     
     def bbox(self) -> list[float]:
+        """
+        Get the bounding box of the layer.
+        
+        It is of the form [xmin, ymin, xmax, ymax].
+        """
         qgsRectangle = self.layer.extent()
         return [qgsRectangle.xMinimum(), qgsRectangle.yMinimum(), qgsRectangle.xMaximum(), qgsRectangle.yMaximum()]
 
     def size(self) -> int:
+        """
+        Get the number of features in the layer.
+        """
         return self.layer.featureCount()
     
     def features(self, filter:str = None, bbox:list[float] = None, geometryfilter:HGeometry = None) -> list[HFeature]:
+        """
+        Get the features of the layer.
+
+        The filter can be a SQL expression.
+        The bbox is of the form [xmin, ymin, xmax, ymax].
+        The geometry filter is a HGeometry object.
+
+        Filter elements are exclusive, i.e. if filter is set, bbox and geometryfilter are ignored.
+        """
         features = None
         if filter:
             features = self.layer.getFeatures(QgsFeatureRequest().setFilterExpression(filter))
@@ -427,15 +482,30 @@ class HVectorLayer:
         return [HFeature(f) for f in features]
 
     def add_feature(self, geometry: HGeometry, attributes: list[any]):
+        """
+        Add a feature to the layer.
+        """
         feature = QgsFeature()
         feature.setGeometry(QgsGeometry(geometry.geometry.clone()))
         feature.setAttributes(attributes)
         self.layer.dataProvider().addFeature(feature)
     
     def add_features(self, features: list[HFeature]):
+        """
+        Add a list of features to the layer.
+        """
         self.layer.dataProvider().addFeatures([f.feature for f in features])
 
+    def subset_filter(self, filter: str):
+        """
+        Set a subset filter for the layer.
+        """
+        self.layer.setSubsetString(filter)
+
     def dump_to_gpkg(self, path: str, overwrite: bool = False, encoding: str = "UTF-8"):
+        """
+        Dump the layer to a GeoPackage file.
+        """
         saveOptions = QgsVectorFileWriter.SaveVectorOptions()
         saveOptions.driverName = 'GPKG'
         saveOptions.layerName = self.layer.name()
@@ -451,6 +521,9 @@ class HVectorLayer:
         return None
 
     def dump_to_shp(self, path: str, encoding: str = "UTF-8"):
+        """
+        Dump the layer to a Shapefile.
+        """
         saveOptions = QgsVectorFileWriter.SaveVectorOptions()
         saveOptions.driverName = 'ESRI Shapefile'
         saveOptions.fileEncoding = encoding
@@ -461,4 +534,7 @@ class HVectorLayer:
         return None
 
     def add_to_map(self):
+        """
+        Add the layer to the current active map.
+        """
         QgsProject.instance().addMapLayer(self.layer)
