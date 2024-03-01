@@ -317,10 +317,10 @@ class TestPyQgisExt(unittest.TestCase):
         # read the vector layer
         layer = HVectorLayer.open("tests/ne.gpkg", "ne_10m_populated_places")
         
-        self.assertEquals(layer.srid(), "EPSG:4326")
+        self.assertEquals(layer.prjcode, "EPSG:4326")
         self.assertEquals(layer.size(), 58)
 
-        fields = layer.fields()
+        fields = layer.fields
         self.assertEquals(fields["SCALERANK"], "Integer64")
         self.assertEquals(fields["ADM0_A3"], "String")
 
@@ -345,6 +345,25 @@ class TestPyQgisExt(unittest.TestCase):
 
         self.assertIsInstance(features[0].geometry, HPoint)
 
+    def test_vectorlayer_sublayer(self):
+        # read the vector layer
+        layer = HVectorLayer.open("tests/ne.gpkg", "ne_10m_populated_places")
+        minX = 10.5
+        maxX = 11.5
+        minY= 45.2
+        maxY = 46.8
+        intersectionPolygon = HPolygon.fromCoords([[minX, minY], [maxX, minY], [maxX, maxY], [minX, maxY], [minX, minY]])
+        subLayer = layer.sublayer(intersectionPolygon)
+        self.assertEquals(subLayer.size(), 3)
+
+        names = [f.attributes['NAME'] for f in subLayer.features()]
+        self.assertIn("Bolzano", names)
+        self.assertIn("Trento", names)
+        self.assertIn("Verona", names)
+
+
+
+
     def test_vectorlayer_write(self):
         fields = {
             "id": "Integer",
@@ -355,6 +374,7 @@ class TestPyQgisExt(unittest.TestCase):
         layer.add_feature(HPoint(-73.98, 40.47), [2, "New York"])
 
         self.assertEquals(len(layer.features()), 2)
+        self.assertEquals(layer.prjcode, "EPSG:4326")
 
         # test geopackage
         error = layer.dump_to_gpkg("tests/test.gpkg", overwrite=True)
@@ -408,9 +428,10 @@ class TestPyQgisExt(unittest.TestCase):
             "yoffset": 10.0
         }
 
-        point_with_label = HMarker("circle", 10) + HFill("green") + HStroke("black", 1) + HLabel(**labelProperties)
+        point_with_label = HMarker("circle", 10) + HFill("green") + HStroke("black", 1) + HLabel(**labelProperties) + HHalo(1, "white")
         self.assertEquals(point_with_label.type, "point")
         self.assertEquals(point_with_label.properties['label_font'], "Arial")
+        self.assertEquals(point_with_label.properties['halo_color'], "white")
         
 
         

@@ -1,7 +1,7 @@
 from qgis.core import *
 from qgis.gui import *
 import os
-from PyQt5.QtGui import QColor
+from PyQt5.QtGui import QColor, QFont
 
 ENDCAPSTYLE_ROUND = Qgis.EndCapStyle.Round
 ENDCAPSTYLE_FLAT = Qgis.EndCapStyle.Flat
@@ -431,25 +431,6 @@ class HCrs:
         """
         return QgsProject.instance().crs()
 
-class HFeature:
-    def __init__(self, feature: QgsFeature):
-        self.feature = feature
-        self.geometry = HGeometry.from_specialized(self.feature.geometry())
-        self.attributes = self.feature.attributeMap()
-
-    @staticmethod
-    def create(geometry: HGeometry, attributes: dict[str, any]):
-        """
-        Create a new feature based on the givengeometry and attributes.
-
-        The attributes must be a dictionary with the field names as keys 
-        and the same order as the schema they will be written to..
-        """
-        feature = QgsFeature()
-        feature.setGeometry(QgsGeometry(geometry.geometry.clone()))
-        feature.setAttributes(attributes)
-        return HFeature(feature)
-
 class HStyle:
     def __init__(self, properties: dict, type:str = "line"):
         self.properties = properties
@@ -531,10 +512,45 @@ class HLabel(HStyle):
         }
         super().__init__(properties)
 
+class HHalo(HStyle):
+    def __init__(self, color: str = 'white', width: float = 1):
+        self.width = width
+        self.color = color
+        properties = {
+            "halo_width": width,
+            "halo_color": color,
+        }
+        super().__init__(properties)
+
+
+class HFeature:
+    def __init__(self, feature: QgsFeature):
+        self.feature = feature
+        self.geometry = HGeometry.from_specialized(self.feature.geometry())
+        self.attributes = self.feature.attributeMap()
+
+    @staticmethod
+    def create(geometry: HGeometry, attributes: dict[str, any]):
+        """
+        Create a new feature based on the givengeometry and attributes.
+
+        The attributes must be a dictionary with the field names as keys 
+        and the same order as the schema they will be written to..
+        """
+        feature = QgsFeature()
+        feature.setGeometry(QgsGeometry(geometry.geometry.clone()))
+        feature.setAttributes(attributes)
+        return HFeature(feature)
+
 class HVectorLayer:
     def __init__(self, layer: QgsVectorLayer, isReadOnly: bool):
         self.layer = layer
         self.isReadOnly = isReadOnly
+        self.prjcode = self.layer.crs().authid()
+        self.fields = {}
+        for field in self.layer.fields():
+            self.fields[field.name()] = field.typeName()
+        
 
     @staticmethod
     def open(path: str, table_name: str):
@@ -556,32 +572,15 @@ class HVectorLayer:
         return HVectorLayer(layer, True)
     
     @staticmethod
-    def new(name: str, geometry_type: str, srid: int, fields: dict[str, str]):
+    def new(name: str, geometry_type: str, prjcode: str, fields: dict[str, str]):
         """
         Create a new vector layer in memory.
         """
-        definition = f"{geometry_type}?crs=epsg:{srid}"
+        definition = f"{geometry_type}?crs={prjcode}"
         for fname, type in fields.items():
             definition += f"&field={fname}:{type}"
         layer = QgsVectorLayer(definition, name, "memory")
         return HVectorLayer(layer, False)
-
-    def srid(self) -> str:
-        """
-        Get the SRID of the layer.
-
-        It is of the form "EPSG:xxxx"
-        """
-        return self.layer.crs().authid()
-    
-    def fields(self) -> dict:
-        """
-        Get the field namnes and types of the layer.
-        """
-        fieldsDict = {}
-        for field in self.layer.fields():
-            fieldsDict[field.name()] = field.typeName()
-        return fieldsDict
     
     def bbox(self) -> list[float]:
         """
@@ -644,6 +643,16 @@ class HVectorLayer:
         """
         self.layer.setSubsetString(filter)
 
+    def sub_layer(self, intersection_geometry: HGeometry, name: str):
+        """
+        Create a sublayer from the intersection of the layer with the given geometry.
+        """
+        features = self.features(geometryfilter=intersection_geometry)
+        geomType = str(self.layer.geometryType())
+        sublayer = HVectorLayer.new(name, geomType, self.prjcode, self.fields)
+        sublayer.add_features(features)
+        return sublayer
+
     def dump_to_gpkg(self, path: str, overwrite: bool = False, encoding: str = "UTF-8"):
         """
         Dump the layer to a GeoPackage file.
@@ -681,8 +690,8 @@ class HVectorLayer:
         """
         if style.type == "line":
             properties = {
-                'line_color': style['stroke_color'],
-                'line_width': style['stroke_width'],
+                'line_color': style.properties['stroke_color'],
+                'line_width': style.properties['stroke_width'],
                 'capstyle': 'round',
                 'joinstyle': 'round'
             }
@@ -690,20 +699,20 @@ class HVectorLayer:
             self.layer.renderer().setSymbol(symbol)
         elif style.type == "point":
             properties = {
-                'name': style['name'],
-                'size': style['size'],
-                'angle': style['angle'],
-                'color': style['fill_color'],
-                'outline_color': style['stroke_color'],
-                'outline_width': style['stroke_width']
+                'name': style.properties['marker_name'],
+                'size': style.properties['marker_size'],
+                'angle': style.properties['marker_angle'],
+                'color': style.properties['fill_color'],
+                'outline_color': style.properties['stroke_color'],
+                'outline_width': style.properties['stroke_width']
             }
             symbol = QgsMarkerSymbol.createSimple(properties)
             self.layer.renderer().setSymbol(symbol)
         elif style.type == "polygon":
             properties = {
-                'color': style['fill_color'],
-                'outline_color': style['stroke_color'],
-                'outline_width': style['stroke_width'],
+                'color': style.properties['fill_color'],
+                'outline_color': style.properties['stroke_color'],
+                'outline_width': style.properties['stroke_width'],
                 'capstyle': 'round',
                 'joinstyle': 'round'
             }
@@ -711,6 +720,56 @@ class HVectorLayer:
             self.layer.renderer().setSymbol(symbol)
         else:
             raise ValueError(f"Unsupported style type: {style.type}")
+
+        # if labels are set, add them
+        if 'label_field' in style.properties:
+            field = style.properties['label_field']
+            font = "Arial"
+            if 'label_font' in style.properties:
+                font = style.properties['label_font']
+            size = 14
+            if 'label_size' in style.properties:
+                size = style.properties['label_size']
+            color = "black"
+            if 'label_color' in style.properties:
+                color = style.properties['label_color']
+
+            settings = QgsPalLayerSettings()
+            format = QgsTextFormat()
+            format.setFont(QFont(font, int(size))) # font with size
+            format.setColor(QColor(color)) # font color
+
+            if 'halo_width' in style.properties:
+                buffer = QgsTextBufferSettings()
+                buffer.setEnabled(True)
+                buffer.setSize(style.properties['halo_width'])
+                buffer.setColor(QColor(style.properties['halo_color']))
+                format.setBuffer(buffer)
+
+                # create a halo around the text
+                format.setBuffer(buffer) # set the halo in the text format
+
+            settings.setFormat(format) # set the text format in the layer settings
+            settings.fieldName = field
+
+            # make a simple check to see if brackets are contained. If they are, it is handled as an expression
+            if "(" in field:
+                settings.isExpression = True
+
+            # label positioning with offsets
+            settings.placement = QgsPalLayerSettings.OverPoint
+            settings.xOffset = 0.0
+            settings.yOffset = 0.0
+            if 'label_xoffset' in style.properties:
+                settings.xOffset = style.properties['label_xoffset']
+            if 'label_yoffset' in style.properties:
+                settings.yOffset = style.properties['label_yoffset']
+            
+            # enable labels on the layer
+            labels = QgsVectorLayerSimpleLabeling(settings)
+            self.layer.setLabelsEnabled(True)
+            self.layer.setLabeling(labels)
+
         self.layer.triggerRepaint()
 
     
