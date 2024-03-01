@@ -353,7 +353,7 @@ class TestPyQgisExt(unittest.TestCase):
         minY= 45.2
         maxY = 46.8
         intersectionPolygon = HPolygon.fromCoords([[minX, minY], [maxX, minY], [maxX, maxY], [minX, maxY], [minX, minY]])
-        subLayer = layer.sublayer(intersectionPolygon)
+        subLayer = layer.sub_layer(intersectionPolygon)
         self.assertEquals(subLayer.size(), 3)
 
         names = [f.attributes['NAME'] for f in subLayer.features()]

@@ -577,8 +577,14 @@ class HVectorLayer:
         Create a new vector layer in memory.
         """
         definition = f"{geometry_type}?crs={prjcode}"
-        for fname, type in fields.items():
-            definition += f"&field={fname}:{type}"
+        for fname, ftype in fields.items():
+            if ftype.lower().startswith("int"):
+                ftype = "int"
+            elif ftype.lower().startswith("float"):
+                ftype = "float"
+            elif ftype.lower().startswith("double"):
+                ftype = "double"
+            definition += f"&field={fname}:{ftype}"
         layer = QgsVectorLayer(definition, name, "memory")
         return HVectorLayer(layer, False)
     
@@ -643,12 +649,15 @@ class HVectorLayer:
         """
         self.layer.setSubsetString(filter)
 
-    def sub_layer(self, intersection_geometry: HGeometry, name: str):
+    def sub_layer(self, intersection_geometry: HGeometry, name: str = None):
         """
         Create a sublayer from the intersection of the layer with the given geometry.
         """
+        if name is None:
+            name = self.layer.name() + "_sublayer"
         features = self.features(geometryfilter=intersection_geometry)
-        geomType = str(self.layer.geometryType())
+        geomType = self.layer.geometryType()
+        geomType = str(geomType).split('.')[-1]
         sublayer = HVectorLayer.new(name, geomType, self.prjcode, self.fields)
         sublayer.add_features(features)
         return sublayer
