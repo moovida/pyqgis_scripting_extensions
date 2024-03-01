@@ -384,6 +384,35 @@ class TestPyQgisExt(unittest.TestCase):
         if os.path.exists("tests/test.cpg"):
             os.remove("tests/test.cpg")
 
+
+    def test_style_composing(self):
+        pointStyle = HMarker("circle", 10) + HFill("green") + HStroke("black", 1)
+        self.assertEquals(pointStyle.type, "point")
+        pointStyle = HFill("green") + HStroke("black", 1) + HMarker("circle", 10)
+        self.assertEquals(pointStyle.type, "point")
+        pointStyle =  HStroke("black", 1) + HMarker("circle", 10) + HFill("green")
+        self.assertEquals(pointStyle.type, "point")
+
+        lineStyle = HStroke("blue", 2)
+        self.assertEquals(lineStyle.type, "line")
+
+        polyStyle = HFill("green") + HStroke("black", 1)
+        self.assertEquals(polyStyle.type, "polygon")
+
+        labelProperties = {
+            "font": "Arial", 
+            "color": 'black', 
+            "size": 10.0, 
+            "field": "dummy", 
+            "xoffset": 10.0, 
+            "yoffset": 10.0
+        }
+
+        point_with_label = HMarker("circle", 10) + HFill("green") + HStroke("black", 1) + HLabel(**labelProperties)
+        self.assertEquals(point_with_label.type, "point")
+        self.assertEquals(point_with_label.properties['label_font'], "Arial")
+        
+
         
         
 

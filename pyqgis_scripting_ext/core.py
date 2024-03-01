@@ -15,13 +15,18 @@ JOINSTYLE_MITER = Qgis.JoinStyle.Miter
 class HGeometry:
     def __init__(self, geometry: QgsAbstractGeometry):
         self.geometry = geometry
-        self.qgsGeometry = QgsGeometry(self.geometry.clone())
+        self.qgs_geometry = None
+
+    def get_qgs_geometry(self) -> QgsGeometry:
+        if not self.qgs_geometry:
+            self.qgs_geometry = QgsGeometry(self.geometry.clone())
+        return self.qgs_geometry
 
     def __str__(self):
         return self.asWkt()
     
     def asWkt(self) -> str:
-        return self.qgsGeometry.asWkt()
+        return self.get_qgs_geometry().asWkt()
     
     def coordinates(self) -> list[tuple[float, float]]:
         """
@@ -54,13 +59,13 @@ class HGeometry:
         return self.geometry.area()
     
     def length(self) -> float:
-        return self.qgsGeometry.length()
+        return self.get_qgs_geometry().length()
     
     def centroid(self):
         return HGeometry.from_specialized(self.geometry.centroid())
     
     def distance(self, other) -> float:
-        return self.qgsGeometry.distance(QgsGeometry(other.geometry.clone()))
+        return self.get_qgs_geometry().distance(QgsGeometry(other.geometry.clone()))
     
     def bbox(self) -> list[float]:
         rect = self.geometry.boundingBox()
@@ -78,51 +83,51 @@ class HGeometry:
         return [HGeometry.from_specialized(self.geometry.childGeometry(i)) for i in range(count)]
     
     def intersects(self, other) -> bool:
-        return self.qgsGeometry.intersects(QgsGeometry(other.geometry.clone()))
+        return self.get_qgs_geometry().intersects(QgsGeometry(other.geometry.clone()))
     
     def contains(self, other) -> bool:
-        return self.qgsGeometry.contains(QgsGeometry(other.geometry.clone()))
+        return self.get_qgs_geometry().contains(QgsGeometry(other.geometry.clone()))
     
     def touches(self, other) -> bool:
-        return self.qgsGeometry.touches(QgsGeometry(other.geometry.clone()))
+        return self.get_qgs_geometry().touches(QgsGeometry(other.geometry.clone()))
     
     def overlaps(self, other) -> bool:
-        return self.qgsGeometry.overlaps(QgsGeometry(other.geometry.clone()))
+        return self.get_qgs_geometry().overlaps(QgsGeometry(other.geometry.clone()))
     
     def crosses(self, other) -> bool:
-        return self.qgsGeometry.crosses(QgsGeometry(other.geometry.clone()))
+        return self.get_qgs_geometry().crosses(QgsGeometry(other.geometry.clone()))
     
     def intersection(self, other):
-        intersectionGeom =  self.qgsGeometry.intersection(QgsGeometry(other.geometry.clone()))
+        intersectionGeom =  self.get_qgs_geometry().intersection(QgsGeometry(other.geometry.clone()))
         return HGeometry.from_specialized(intersectionGeom)
     
     def symdifference(self, other):
-        symdifferenceGeom =  self.qgsGeometry.symDifference(QgsGeometry(other.geometry.clone()))
+        symdifferenceGeom =  self.get_qgs_geometry().symDifference(QgsGeometry(other.geometry.clone()))
         return HGeometry.from_specialized(symdifferenceGeom)
     
     def union(self, other):
-        unionGeom =  self.qgsGeometry.combine(QgsGeometry(other.geometry.clone()))
+        unionGeom =  self.get_qgs_geometry().combine(QgsGeometry(other.geometry.clone()))
         return HGeometry.from_specialized(unionGeom)
 
     def __add__(self, other):
         return self.union(other)
     
     def difference(self, other):
-        differenceGeom =  self.qgsGeometry.difference(QgsGeometry(other.geometry.clone()))
+        differenceGeom =  self.get_qgs_geometry().difference(QgsGeometry(other.geometry.clone()))
         return HGeometry.from_specialized(differenceGeom)
     
     def __sub__(self, other):
         return self.difference(other)
     
     def buffer(self, distance: float, segments: int = 8, joinstyle: int = JOINSTYLE_ROUND, capstyle: int = ENDCAPSTYLE_ROUND):
-        bufferGeom = self.qgsGeometry.buffer(distance, segments, capstyle, joinstyle, 1)
+        bufferGeom = self.get_qgs_geometry().buffer(distance, segments, capstyle, joinstyle, 1)
         return HGeometry.from_specialized(bufferGeom)
     
     def centroid(self):
-        return HGeometry.from_specialized(self.qgsGeometry.centroid())
+        return HGeometry.from_specialized(self.get_qgs_geometry().centroid())
     
     def convex_hull(self):
-        return HGeometry.from_specialized(self.qgsGeometry.convexHull())
+        return HGeometry.from_specialized(self.get_qgs_geometry().convexHull())
     
     @staticmethod
     def fromWkt(wkt: str):
@@ -168,13 +173,14 @@ class HPoint(HGeometry):
             self.x = qgs_point_geom.x()
             self.y = qgs_point_geom.y()
             self.z = qgs_point_geom.z()
-            self.geometry = qgs_point_geom
+            geometry = qgs_point_geom
         else:
             self.x = x
             self.y = y
             self.z = z
-            self.geometry = QgsPoint(x, y, z)
-        super().__init__(self.geometry)
+            geometry = QgsPoint(x, y, z)
+        super().__init__(geometry)
+        
     
     def x(self) -> float:
         return self.geometry.x()
@@ -190,10 +196,10 @@ class HPoint(HGeometry):
 class HMultiPoint(HGeometry):
     def __init__(self, points: list[HPoint] = None, qgs_multipoint_geom: QgsMultiPoint = None):
         if qgs_multipoint_geom:
-            self.geometry = qgs_multipoint_geom
+            geometry = qgs_multipoint_geom
         else:
-            self.geometry = QgsMultiPoint([QgsPoint(p.x, p.y, p.z) for p in points])
-        super().__init__(self.geometry)
+            geometry = QgsMultiPoint([QgsPoint(p.x, p.y, p.z) for p in points])
+        super().__init__(geometry)
 
     @classmethod
     def fromCoords(cls, coordinates: list[tuple[float, float]]):
@@ -203,10 +209,10 @@ class HMultiPoint(HGeometry):
 class HLineString(HGeometry):
     def __init__(self, points: list[HPoint] = None, qgs_linestring_geom: QgsLineString = None):
         if qgs_linestring_geom:
-            self.geometry = qgs_linestring_geom
+            geometry = qgs_linestring_geom
         else:
-            self.geometry = QgsLineString([QgsPoint(p.x, p.y) for p in points])
-        super().__init__(self.geometry)
+            geometry = QgsLineString([QgsPoint(p.x, p.y) for p in points])
+        super().__init__(geometry)
 
     @classmethod
     def fromCoords(cls, coordinates: list[tuple[float, float]]):
@@ -216,14 +222,13 @@ class HLineString(HGeometry):
 class HMultiLineString(HGeometry):
     def __init__(self, linestrings: list[HLineString] = None, qgs_multilinestring_geom: QgsMultiLineString = None):
         if qgs_multilinestring_geom:
-            self.geometry = qgs_multilinestring_geom
+            geometry = qgs_multilinestring_geom
         else:
-            self.linestrings = linestrings
-            self.geometry = QgsMultiLineString()
+            geometry = QgsMultiLineString()
             linesToAdd = [QgsLineString([QgsPoint(c[0], c[1]) for c in ls.coordinates()]) for ls in linestrings]
             for line in linesToAdd:
-                self.geometry.addGeometry(line)
-        super().__init__(self.geometry)
+                geometry.addGeometry(line)
+        super().__init__(geometry)
 
     @classmethod
     def fromCoords(cls, coordinates: list[list[tuple[float, float]]]):
@@ -233,13 +238,13 @@ class HMultiLineString(HGeometry):
 class HPolygon(HGeometry):
     def __init__(self, exterior_ring: HLineString = None, qgs_polygon_geom: QgsPolygon = None):
         if qgs_polygon_geom:
-            self.geometry = qgs_polygon_geom
+            geometry = qgs_polygon_geom
         else:
             coords = exterior_ring.coordinates()
             if coords[0][0] != coords[-1][0] or coords[0][1] != coords[-1][1]:
                 raise ValueError("The first and last point of the exterior ring must be equal")
-            self.geometry = QgsPolygon(QgsLineString([QgsPoint(x, y, z) for x, y, z in coords]))
-        super().__init__(self.geometry)
+            geometry = QgsPolygon(QgsLineString([QgsPoint(x, y, z) for x, y, z in coords]))
+        super().__init__(geometry)
 
     @classmethod
     def fromCoords(cls, coords: list[tuple[float, float]]):
@@ -252,7 +257,6 @@ class HPolygon(HGeometry):
         if coords[0][0] != coords[-1][0] or coords[0][1] != coords[-1][1]:
             raise ValueError("The first and last point of an interior ring must be equal")
         self.geometry.addInteriorRing(ring.geometry)
-        self.qgsGeometry = QgsGeometry(self.geometry.clone())
 
     def exterior_ring(self) -> HLineString:
         return HGeometry.from_specialized(self.geometry.exteriorRing())
@@ -266,13 +270,13 @@ class HPolygon(HGeometry):
 class HMultiPolygon(HGeometry):
     def __init__(self, polygons: list[HPolygon] = None, qgs_multipolygon_geom: QgsMultiPolygon = None):
         if qgs_multipolygon_geom:
-            self.geometry = qgs_multipolygon_geom
+            geometry = qgs_multipolygon_geom
         else:
             qgsPolygons = [poly.geometry for poly in polygons]
-            self.geometry = QgsMultiPolygon()
+            geometry = QgsMultiPolygon()
             for poly in qgsPolygons:
-                self.geometry.addGeometry(poly)
-        super().__init__(self.geometry)
+                geometry.addGeometry(poly)
+        super().__init__(geometry)
 
     @classmethod
     def fromCoords(cls, coords: list[list[tuple[float, float]]]):
@@ -282,12 +286,12 @@ class HMultiPolygon(HGeometry):
 class HGeometryCollection(HGeometry):
     def __init__(self, geometries: list[HGeometry] = None, qgs_geometrycollection_geom: QgsGeometryCollection = None):
         if qgs_geometrycollection_geom:
-            self.geometry = qgs_geometrycollection_geom
+            geometry = qgs_geometrycollection_geom
         else:
-            self.geometry = QgsGeometryCollection()
+            geometry = QgsGeometryCollection()
             for geom in geometries:
-                self.geometry.addGeometry(geom.geometry)
-        super().__init__(self.geometry)
+                geometry.addGeometry(geom.geometry)
+        super().__init__(geometry)
 
 
 class HMapCanvas():
@@ -308,48 +312,6 @@ class HMapCanvas():
     # def set_extent(self, extent: QgsRectangle):
     #     self.canvas.setExtent(extent)
 
-    # def add_geometry(self, geometry: HGeometry, color: str = 'red', width: float = 2.0):
-    #     if isinstance(geometry, HPoint):
-    #         r = QgsRubberBand(self.canvas, Qgis.GeometryType.Point)
-    #         r.addGeometry(geometry.qgsGeometry.constGet())
-    #         r.setColor(QColor(color))
-    #         r.setWidth(width)
-    #     elif isinstance(geometry, HMultiPoint):
-    #         r = QgsRubberBand(self.canvas, Qgis.GeometryType.Point)
-    #         for point in geometry.geometries():
-    #             r.addGeometry(point.qgsGeometry.constGet())
-    #         r.setColor(QColor(color))
-    #         r.setWidth(width)
-    #     elif isinstance(geometry, HLineString):
-    #         r = QgsRubberBand(self.canvas, Qgis.GeometryType.Line)
-    #         r.setColor(QColor(color))
-    #         r.setWidth(width)
-    #         r.addGeometry(geometry.qgsGeometry.constGet())
-    #     elif isinstance(geometry, HMultiLineString):
-    #         r = QgsRubberBand(self.canvas, Qgis.GeometryType.Line)
-    #         r.setColor(QColor(color))
-    #         r.setWidth(width)
-    #         for line in geometry.geometries():
-    #             r.addGeometry(line.qgsGeometry.constGet())
-    #     elif isinstance(geometry, HPolygon):
-    #         r = QgsRubberBand(self.canvas, Qgis.GeometryType.Polygon)
-    #         r.addGeometry(geometry.qgsGeometry.constGet())
-    #         fillColor = QColor(color)
-    #         fillColor.setAlphaF(0.5)
-    #         r.setColor(fillColor)
-    #         strokeColor = QColor(color)
-    #         r.setStrokeColor(strokeColor)
-    #         r.setWidth(width)
-    #     elif isinstance(geometry, HMultiPolygon):
-    #         r = QgsRubberBand(self.canvas, Qgis.GeometryType.Polygon)
-    #         for poly in geometry.geometries():
-    #             r.addGeometry(poly.qgsGeometry.constGet())
-    #         fillColor = QColor(color)
-    #         fillColor.setAlphaF(0.5)
-    #         r.setColor(fillColor)
-    #         strokeColor = QColor(color)
-    #         r.setStrokeColor(strokeColor)
-    #         r.setWidth(width)
     def add_geometry(self, geometry: HGeometry, color: str = 'red', width: float = 2.0):
         if isinstance(geometry, HPoint):
             r = QgsRubberBand(self.canvas, Qgis.GeometryType.Point)
@@ -487,8 +449,87 @@ class HFeature:
         feature.setGeometry(QgsGeometry(geometry.geometry.clone()))
         feature.setAttributes(attributes)
         return HFeature(feature)
-    
 
+class HStyle:
+    def __init__(self, properties: dict, type:str = "line"):
+        self.properties = properties
+        if not type:
+            type = "line"
+        if not type in ["point", "line", "polygon"]:
+            raise ValueError("The style type must be point, line or polygon")
+        self.type = type
+
+    def __add__(self, other):
+        # new style with the properties of both styles
+        properties = {}
+        properties.update(self.properties)
+        properties.update(other.properties)
+
+        type = "line"
+        if (self.type == "point" or other.type == "point"):
+            type = "point"
+        elif (self.type == "polygon" or other.type == "polygon"):
+            type = "polygon"
+
+        return HStyle(properties, type)
+    
+    def __str__(self) -> str:
+        string = "type: " + self.type + "\n"
+        for key, value in self.properties.items():
+            string += f"\t{key}: {value}\n"
+        return string
+
+class HMarker(HStyle):
+    def __init__(self, name: str = "square", size: float = 5.0, angle: float = 0.0):
+        self.name = name
+        self.size = size
+        self.angle = angle
+        properties = {
+            "marker_name": name,
+            "marker_size": size,
+            "marker_angle": angle
+        }
+        super().__init__(properties)
+        self.type = "point"
+
+class HStroke(HStyle):
+    def __init__(self, color: str = 'red', width: float = 2.0):
+        self.color = color
+        self.width = width
+        properties = {
+            "stroke_color": color,
+            "stroke_width": width,
+        }
+        super().__init__(properties)
+
+class HFill(HStyle):
+    def __init__(self, color: str = 'red'):
+        self.color = color
+        properties = {
+            "fill_color": color,
+        }
+        super().__init__(properties)
+        if self.type == "line":
+            self.type = "polygon"
+
+class HLabel(HStyle):
+    def __init__(self, font: str = "Arial", color: str = 'black', size: float = 10.0, field:str = None, \
+                 xoffset: float = 0.0, yoffset: float = 0.0):    
+        self.font = font
+        self.color = color
+        self.size = size
+        self.field = field
+        self.xoffset = xoffset
+        self.yoffset = yoffset
+        properties = {
+            "label_font": font,
+            "label_color": color,
+            "label_size": size,
+            "label_field": field,
+            "label_xoffset": xoffset,
+            "label_yoffset": yoffset,
+        }
+        super().__init__(properties)
 
 class HVectorLayer:
     def __init__(self, layer: QgsVectorLayer, isReadOnly: bool):
@@ -576,7 +617,7 @@ class HVectorLayer:
         elif geometryfilter:
             features = self.layer.getFeatures(QgsFeatureRequest().setFilterRect(geometryfilter.geometry.boundingBox()))
             # then filter out manually by looping and intersecting
-            features = [f for f in features if f.geometry().intersects(geometryfilter.qgsGeometry)]
+            features = [f for f in features if f.geometry().intersects(geometryfilter.get_qgs_geometry())]
         else:
             features = self.layer.getFeatures()
 
@@ -634,8 +675,81 @@ class HVectorLayer:
             return error[1]
         return None
 
-    def add_to_map(self):
+    def set_style(self, style: HStyle):
         """
-        Add the layer to the current active map.
+        Set the style of the layer.
         """
-        QgsProject.instance().addMapLayer(self.layer)
+        if style.type == "line":
+            properties = {
+                'line_color': style['stroke_color'],
+                'line_width': style['stroke_width'],
+                'capstyle': 'round',
+                'joinstyle': 'round'
+            }
+            symbol = QgsLineSymbol.createSimple(properties)
+            self.layer.renderer().setSymbol(symbol)
+        elif style.type == "point":
+            properties = {
+                'name': style['name'],
+                'size': style['size'],
+                'angle': style['angle'],
+                'color': style['fill_color'],
+                'outline_color': style['stroke_color'],
+                'outline_width': style['stroke_width']
+            }
+            symbol = QgsMarkerSymbol.createSimple(properties)
+            self.layer.renderer().setSymbol(symbol)
+        elif style.type == "polygon":
+            properties = {
+                'color': style['fill_color'],
+                'outline_color': style['stroke_color'],
+                'outline_width': style['stroke_width'],
+                'capstyle': 'round',
+                'joinstyle': 'round'
+            }
+            symbol = QgsFillSymbol.createSimple(properties)
+            self.layer.renderer().setSymbol(symbol)
+        else:
+            raise ValueError(f"Unsupported style type: {style.type}")
+        self.layer.triggerRepaint()
+
+    
+class HMap:
+    """
+    Class to manage the map view.
+    """
+
+    @staticmethod
+    def add_layer(layer: HVectorLayer):
+        """
+        Add a layer to the current active map.
+        """
+        QgsProject.instance().addMapLayer(layer.layer)
+
+    @staticmethod
+    def remove_layer(layer: HVectorLayer):
+        """
+        Remove a layer from the current active map.
+        """
+        QgsProject.instance().removeMapLayer(layer.layer.id())
+
+    @staticmethod
+    def remove_layer_by_name(name: str):
+        """
+        Remove a layer from the current active map by name.
+        """
+        layers = QgsProject.instance().mapLayersByName(name)
+        for layer in layers:
+            QgsProject.instance().removeMapLayer(layer.id())
+
+    @staticmethod
+    def layers_by_name(name: str) -> list[HVectorLayer]:
+        """
+        Get layers by name.
+        """
+        layers = []
+        for layer in QgsProject.instance().mapLayersByName(name):
+            layers.append(HVectorLayer(layer, True))
+        return layers
+
+        
