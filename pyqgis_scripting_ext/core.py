@@ -893,4 +893,119 @@ class HMap:
             layers.append(HVectorLayer(layer, True))
         return layers
 
+
+class HPrinter:
+    
+    def __init__(self, iface: QgisInterface, name:str = None, page:str = "A4") -> None:
+        """
+        Create a new printer object.
+
+        If a name is given, it will be used to save the layout to the layout manager.
+        """
+        self.iface = iface
+        self.project = QgsProject.instance()
+        self.layout = QgsPrintLayout(self.project)
+        self.layout.initializeDefaults() # add A4 page to layout by default
+
+        # ls = QgsLayoutSize.A4
+        # if page == "A3":
+        #     ls = QgsLayoutSize.A3
+        # elif page == "A5":
+        #     ls = QgsLayoutSize.A5
+        # layout_size = QgsLayoutSize(ls)
+        # self.layout.pageCollection().pageLayout().setPageSize(layout_size)
+
+        if name:
+            # if you want to save the layout
+            self.layout.setName(name)
+            self.project.layoutManager().addLayout(self.layout)
+        self.map = None
+    
+    def checkMap(self):
+        if not self.map:
+            raise ValueError("A map must be added to the layout first")
+
+    def add_map(self, x:int = 0, y:int = 0, width:int = 296, height:int = 210, frame:bool = True, extent:list[float] = None):
+        """
+        Add a map to the layout.
+        """
+        self.map = QgsLayoutItemMap(self.layout)
+        self.map.attemptMove(QgsLayoutPoint(x,y, QgsUnitTypes.LayoutMillimeters))
+        self.map.attemptResize(QgsLayoutSize(width, height, QgsUnitTypes.LayoutMillimeters))
+        self.map.setExtent(QgsRectangle(0, 0, width, height)) 
+        self.map.zoomToExtent(self.iface.mapCanvas().extent())
+        self.map.setFrameEnabled(frame)
+        self.layout.addLayoutItem(self.map)
+
+    def add_legend(self, x:int = 230, y:int = 30, width:int = 150, height:int = 100, frame:bool = True, max_symbol_size:float = 3):
+        """
+        Add a legend to the layout.
+        """
+        self.checkMap()
+        legend = QgsLayoutItemLegend(self.layout)
+        legend.setLinkedMap(self.map) 
+        legend.setFrameEnabled(frame)
+        legend.attemptMove(QgsLayoutPoint(x,y, QgsUnitTypes.LayoutMillimeters))
+        legend.attemptResize(QgsLayoutSize(width, height, QgsUnitTypes.LayoutMillimeters))
+        legend.setMaximumSymbolSize(max_symbol_size)
+        self.layout.addLayoutItem(legend)
+    
+    def add_scalebar(self, x:int = 10, y:int = 190, units:str = "km", style:str = "Single Box", segments:int = 2, \
+                     unit_per_segment:int = 100, font:str = "Arial", font_size:int = 8):
+        """
+        Add a scalebar to the layout.
+        """
+        scalebar = QgsLayoutItemScaleBar(self.layout)
+        scalebar.setStyle(style) #'Line Ticks Up')
+        scalebar.setLinkedMap(self.map)
+        scalebar.setFont(QFont(font, font_size))
+        # scalebar.applyDefaultSize()
+        if units == "m":
+            scalebar.setUnits(QgsUnitTypes.DistanceMeters)
+        elif units == "km":
+            scalebar.setUnits(QgsUnitTypes.DistanceKilometers)
+        elif units == "mi":
+            scalebar.setUnits(QgsUnitTypes.DistanceMiles)
+        elif units == "ft":
+            scalebar.setUnits(QgsUnitTypes.DistanceFeet)
         
+        scalebar.setUnitLabel(units)
+        scalebar.setNumberOfSegments(segments)
+        scalebar.setUnitsPerSegment(unit_per_segment)
+        scalebar.attemptMove(QgsLayoutPoint(x,y, QgsUnitTypes.LayoutMillimeters))
+        self.layout.addLayoutItem(scalebar)
+
+    def add_label(self, x:int = 10, y:int = 10, text:str = "a label", font:str = "Arial", font_size:int = 12, bold:bool = False, italic:bool = False):
+        """
+        Add a label to the layout.
+        """
+        label = QgsLayoutItemLabel(self.layout)
+        label.setText(text)
+        weight = None
+        if bold:
+            weight = QFont.bold
+        if italic:
+            weight = QFont.italic
+
+        label.setFont(QFont(font, font_size, weight))
+        label.attemptMove(QgsLayoutPoint(x,y, QgsUnitTypes.LayoutMillimeters))
+        self.layout.addLayoutItem(label)
+
+    def dump_to_pdf(self, path:str):
+        """
+        Dump the layout to a PDF file.
+        """
+        exporter = QgsLayoutExporter(self.layout)
+        settings = QgsLayoutExporter.PdfExportSettings()
+        exporter.exportToPdf(path, settings)
+
+    def dump_to_image(self, path:str, width:int = 800, height:int = 600, dpi:int = 300):
+        """
+        Dump the layout to an image file.
+        """
+        exporter = QgsLayoutExporter(self.layout)
+        settings = QgsLayoutExporter.ImageExportSettings()
+        settings.dpi = dpi
+        settings.width = width
+        settings.height = height
+        exporter.exportToImage(path, settings)
