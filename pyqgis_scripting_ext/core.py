@@ -495,13 +495,16 @@ class HFill(HStyle):
 
 class HLabel(HStyle):
     def __init__(self, font: str = "Arial", color: str = 'black', size: float = 10.0, field:str = None, \
-                 xoffset: float = 0.0, yoffset: float = 0.0):    
+                 xoffset: float = 0.0, yoffset: float = 0.0, along_line: bool = False, bold: bool = False, italic: bool = False):    
         self.font = font
         self.color = color
         self.size = size
         self.field = field
         self.xoffset = xoffset
         self.yoffset = yoffset
+        self.along_line = along_line
+        self.bold = bold
+        self.italic = italic
         properties = {
             "label_font": font,
             "label_color": color,
@@ -509,6 +512,9 @@ class HLabel(HStyle):
             "label_field": field,
             "label_xoffset": xoffset,
             "label_yoffset": yoffset,
+            "label_along_line": along_line,
+            "label_bold": bold,
+            "label_italic": italic
         }
         super().__init__(properties)
 
@@ -785,11 +791,20 @@ class HVectorLayer:
             color = "black"
             if 'label_color' in style.properties:
                 color = style.properties['label_color']
+            bold = False
+            if 'label_bold' in style.properties:
+                bold = style.properties['label_bold']
+            italic = False
+            if 'label_italic' in style.properties:
+                italic = style.properties['label_italic']
 
             settings = QgsPalLayerSettings()
             format = QgsTextFormat()
-            format.setFont(QFont(font, int(size))) # font with size
-            format.setColor(QColor(color)) # font color
+            format.setFont(QFont(font)) 
+            format.setColor(QColor(color))
+            format.setSize(size) # font size. The size in QFont is ignored
+            format.setForcedBold(bold)
+            format.setForcedItalic(italic)
 
             if 'halo_width' in style.properties:
                 buffer = QgsTextBufferSettings()
@@ -807,15 +822,20 @@ class HVectorLayer:
             # make a simple check to see if brackets are contained. If they are, it is handled as an expression
             if "(" in field:
                 settings.isExpression = True
+            else:
+                settings.isExpression = False
 
             # label positioning with offsets
-            settings.placement = QgsPalLayerSettings.OverPoint
-            settings.xOffset = 0.0
-            settings.yOffset = 0.0
-            if 'label_xoffset' in style.properties:
-                settings.xOffset = style.properties['label_xoffset']
-            if 'label_yoffset' in style.properties:
-                settings.yOffset = style.properties['label_yoffset']
+            if style.type == "line" and 'label_along_line' in style.properties:
+                settings.placement = QgsPalLayerSettings.Line
+            else: 
+                settings.placement = QgsPalLayerSettings.OverPoint
+                settings.xOffset = 0.0
+                settings.yOffset = 0.0
+                if 'label_xoffset' in style.properties:
+                    settings.xOffset = style.properties['label_xoffset']
+                if 'label_yoffset' in style.properties:
+                    settings.yOffset = style.properties['label_yoffset']
             
             # enable labels on the layer
             labels = QgsVectorLayerSimpleLabeling(settings)
