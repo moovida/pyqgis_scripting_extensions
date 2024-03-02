@@ -527,20 +527,28 @@ class HFeature:
     def __init__(self, feature: QgsFeature):
         self.feature = feature
         self.geometry = HGeometry.from_specialized(self.feature.geometry())
-        self.attributes = self.feature.attributeMap()
+        self.attributes = self.feature.attributes()
 
-    @staticmethod
-    def create(geometry: HGeometry, attributes: dict[str, any]):
-        """
-        Create a new feature based on the givengeometry and attributes.
+    # @staticmethod
+    # def create(geometry: HGeometry, attributes: list[any]):
+    #     """
+    #     Create a new feature based on the given geometry and attributes.
 
-        The attributes must be a dictionary with the field names as keys 
-        and the same order as the schema they will be written to..
-        """
-        feature = QgsFeature()
-        feature.setGeometry(QgsGeometry(geometry.geometry.clone()))
-        feature.setAttributes(attributes)
-        return HFeature(feature)
+    #     The attributes must be a dictionary with the field names as keys 
+    #     and the same order as the schema they will be written to..
+    #     """
+    #     feature = QgsFeature()
+    #     feature.setGeometry(QgsGeometry(geometry.geometry.clone()))
+    #     feature.setAttributes(attributes)
+    #     return HFeature(feature)
+    
+    def __str__(self):
+        wkt = self.geometry.asWkt()
+        maxLength = 50
+        if len(wkt) > maxLength:
+            wkt = wkt[:maxLength] + "..."
+        string = f"Geometry: {wkt} \nAttributes: {self.attributes}"
+        return string
 
 class HVectorLayer:
     def __init__(self, layer: QgsVectorLayer, isReadOnly: bool):
@@ -548,8 +556,10 @@ class HVectorLayer:
         self.isReadOnly = isReadOnly
         self.prjcode = self.layer.crs().authid()
         self.fields = {}
+        self.field_names = []
         for field in self.layer.fields():
             self.fields[field.name()] = field.typeName()
+            self.field_names.append(field.name())
         
 
     @staticmethod
@@ -578,13 +588,17 @@ class HVectorLayer:
         """
         definition = f"{geometry_type}?crs={prjcode}"
         for fname, ftype in fields.items():
-            if ftype.lower().startswith("int"):
-                ftype = "int"
-            elif ftype.lower().startswith("float"):
+            ftypel = ftype.lower()
+            if ftypel.startswith("int"):
+                ftype = "integer"
+            elif ftypel.startswith("string"):
+                ftype = "string"
+            elif ftypel.startswith("float"):
                 ftype = "float"
-            elif ftype.lower().startswith("double"):
+            elif ftypel.startswith("double") or ftypel.startswith("real"):
                 ftype = "double"
             definition += f"&field={fname}:{ftype}"
+        definition += "&index=yes"
         layer = QgsVectorLayer(definition, name, "memory")
         return HVectorLayer(layer, False)
     
@@ -626,7 +640,14 @@ class HVectorLayer:
         else:
             features = self.layer.getFeatures()
 
+
         return [HFeature(f) for f in features]
+    
+    def field_index(self, field_name: str) -> int:
+        """
+        Get the index of a field by name.
+        """
+        return self.layer.fields().indexFromName(field_name)
 
     def add_feature(self, geometry: HGeometry, attributes: list[any]):
         """
@@ -636,12 +657,6 @@ class HVectorLayer:
         feature.setGeometry(QgsGeometry(geometry.geometry.clone()))
         feature.setAttributes(attributes)
         self.layer.dataProvider().addFeature(feature)
-    
-    def add_features(self, features: list[HFeature]):
-        """
-        Add a list of features to the layer.
-        """
-        self.layer.dataProvider().addFeatures([f.feature for f in features])
 
     def subset_filter(self, filter: str):
         """
@@ -649,17 +664,35 @@ class HVectorLayer:
         """
         self.layer.setSubsetString(filter)
 
-    def sub_layer(self, intersection_geometry: HGeometry, name: str = None):
+    def sub_layer(self, intersection_geometry: HGeometry, name: str = None, fields: list[str] = None):
         """
         Create a sublayer from the intersection of the layer with the given geometry.
         """
         if name is None:
-            name = self.layer.name() + "_sublayer"
+            name = self.layer.name()# + "_sublayer"
         features = self.features(geometryfilter=intersection_geometry)
         geomType = self.layer.geometryType()
         geomType = str(geomType).split('.')[-1]
-        sublayer = HVectorLayer.new(name, geomType, self.prjcode, self.fields)
-        sublayer.add_features(features)
+        if geomType.startswith("Line"):
+            geomType = "LineString"
+
+        subLayerFields = self.fields
+        if fields:
+            subLayerFields = {f: self.fields[f] for f in fields}
+        sublayer = HVectorLayer.new(name, geomType, self.prjcode, subLayerFields)
+
+        fieldsIndexes = None
+        if fields:
+            fieldsIndexes = [self.field_index(f) for f in subLayerFields.keys()]
+
+        # make a deep copy of the features
+        for feature in features:
+            if fieldsIndexes:
+                attributes = [feature.attributes[i] for i in fieldsIndexes]
+            else:
+                attributes = feature.attributes.copy()
+            sublayer.add_feature(feature.geometry, attributes)
+            
         return sublayer
 
     def dump_to_gpkg(self, path: str, overwrite: bool = False, encoding: str = "UTF-8"):
@@ -697,6 +730,7 @@ class HVectorLayer:
         """
         Set the style of the layer.
         """
+        renderer = self.layer.renderer()
         if style.type == "line":
             properties = {
                 'line_color': style.properties['stroke_color'],
@@ -705,7 +739,10 @@ class HVectorLayer:
                 'joinstyle': 'round'
             }
             symbol = QgsLineSymbol.createSimple(properties)
-            self.layer.renderer().setSymbol(symbol)
+            if renderer is None:
+                renderer = QgsSingleSymbolRenderer(symbol)
+                self.layer.setRenderer(renderer)
+            renderer.setSymbol(symbol)
         elif style.type == "point":
             properties = {
                 'name': style.properties['marker_name'],
@@ -716,7 +753,10 @@ class HVectorLayer:
                 'outline_width': style.properties['stroke_width']
             }
             symbol = QgsMarkerSymbol.createSimple(properties)
-            self.layer.renderer().setSymbol(symbol)
+            if renderer is None:
+                renderer = QgsSingleSymbolRenderer(symbol)
+                self.layer.setRenderer(renderer)
+            renderer.setSymbol(symbol)
         elif style.type == "polygon":
             properties = {
                 'color': style.properties['fill_color'],
@@ -726,7 +766,10 @@ class HVectorLayer:
                 'joinstyle': 'round'
             }
             symbol = QgsFillSymbol.createSimple(properties)
-            self.layer.renderer().setSymbol(symbol)
+            if renderer is None:
+                renderer = QgsSingleSymbolRenderer(symbol)
+                self.layer.setRenderer(renderer)
+            renderer.setSymbol(symbol)
         else:
             raise ValueError(f"Unsupported style type: {style.type}")
 
@@ -809,6 +852,16 @@ class HMap:
         layers = QgsProject.instance().mapLayersByName(name)
         for layer in layers:
             QgsProject.instance().removeMapLayer(layer.id())
+    
+    @staticmethod
+    def remove_layers_by_name(names: list[str]):
+        """
+        Remove a list of layers from the current active map by name.
+        """
+        for name in names:
+            layers = QgsProject.instance().mapLayersByName(name)
+            for layer in layers:
+                QgsProject.instance().removeMapLayer(layer.id())
 
     @staticmethod
     def layers_by_name(name: str) -> list[HVectorLayer]:

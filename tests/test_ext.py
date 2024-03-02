@@ -295,7 +295,6 @@ class TestPyQgisExt(unittest.TestCase):
 
     def test_buffer(self):
         bufferGeom = self.g1.buffer(1, 1, JOINSTYLE_BEVEL, ENDCAPSTYLE_SQUARE)
-        print(bufferGeom.asWkt())
         self.assertEquals(bufferGeom.asWkt(), "Polygon ((0 -1, -1 0, -1 5, 0 6, 5 6, 6 5, 6 0, 5 -1, 0 -1))")
 
     def test_transform(self):
@@ -331,7 +330,7 @@ class TestPyQgisExt(unittest.TestCase):
         # get features with filter
         features = layer.features("POP_MAX > 3300000")
         self.assertEquals(len(features), 1)
-        cityName = features[0].attributes['NAME']
+        cityName = features[0].attributes[layer.field_index('NAME')]
         self.assertEquals(cityName, "Rome")
 
         # get features with bbox filter
@@ -353,13 +352,42 @@ class TestPyQgisExt(unittest.TestCase):
         minY= 45.2
         maxY = 46.8
         intersectionPolygon = HPolygon.fromCoords([[minX, minY], [maxX, minY], [maxX, maxY], [minX, maxY], [minX, minY]])
-        subLayer = layer.sub_layer(intersectionPolygon)
-        self.assertEquals(subLayer.size(), 3)
 
-        names = [f.attributes['NAME'] for f in subLayer.features()]
+        # complete attributes sublayer
+        subLayer = layer.sub_layer(intersectionPolygon, "sublayer_test")
+        self.assertEquals(subLayer.size(), 3)
+        index = subLayer.field_index('SCALERANK')
+        self.assertEquals(index, 1)
+        index = subLayer.field_index('NAME')
+        self.assertEquals(index, 5)
+
+        # only extract the NAME attribute
+        subLayer = layer.sub_layer(intersectionPolygon, "sublayer_test", ["NAME"])
+        self.assertEquals(subLayer.size(), 3)
+        index = subLayer.field_index('SCALERANK')
+        self.assertEquals(index, -1)
+        index = subLayer.field_index('NAME')
+        self.assertEquals(index, 0)
+        names = [f.attributes[index] for f in subLayer.features()]
         self.assertIn("Bolzano", names)
         self.assertIn("Trento", names)
         self.assertIn("Verona", names)
+
+
+        # geopackagePath = "/storage/data/natural_earth_vector.gpkg"
+        # countriesName = "ne_10m_admin_0_countries"
+        # riversName = "ne_10m_rivers_lake_centerlines_scale_rank"
+        # riversLayer = HVectorLayer.open(geopackagePath, riversName)
+        # countriesLayer = HVectorLayer.open(geopackagePath, countriesName)
+        
+        # countriesLayer.subset_filter("NAME='Italy'")
+        # italyFeatures = countriesLayer.features("NAME='Italy'")
+
+        # riversItalyLayer = riversLayer.sub_layer(italyFeatures[0].geometry, "rivers_italy", ['scalerank', 'name'])
+        # features = riversItalyLayer.features()
+        # print("rivers", len(features))
+        # for f in features:
+        #     print(f)
 
 
 
@@ -374,6 +402,7 @@ class TestPyQgisExt(unittest.TestCase):
         layer.add_feature(HPoint(-73.98, 40.47), [2, "New York"])
 
         self.assertEquals(len(layer.features()), 2)
+        self.assertEquals(len(layer.features("name='New York'")), 1)
         self.assertEquals(layer.prjcode, "EPSG:4326")
 
         # test geopackage
@@ -405,6 +434,9 @@ class TestPyQgisExt(unittest.TestCase):
             os.remove("tests/test.cpg")
 
 
+        
+
+
     def test_style_composing(self):
         pointStyle = HMarker("circle", 10) + HFill("green") + HStroke("black", 1)
         self.assertEquals(pointStyle.type, "point")
@@ -428,7 +460,7 @@ class TestPyQgisExt(unittest.TestCase):
             "yoffset": 10.0
         }
 
-        point_with_label = HMarker("circle", 10) + HFill("green") + HStroke("black", 1) + HLabel(**labelProperties) + HHalo(1, "white")
+        point_with_label = HMarker("circle", 10) + HFill("green") + HStroke("black", 1) + HLabel(**labelProperties) + HHalo("white", 1)
         self.assertEquals(point_with_label.type, "point")
         self.assertEquals(point_with_label.properties['label_font'], "Arial")
         self.assertEquals(point_with_label.properties['halo_color'], "white")
