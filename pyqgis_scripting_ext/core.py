@@ -294,78 +294,6 @@ class HGeometryCollection(HGeometry):
         super().__init__(geometry)
 
 
-class HMapCanvas():
-    def __init__(self, iface: QgisInterface):
-        if iface:
-            self.iface = iface
-            self.canvas = iface.mapCanvas()
-        else:
-            self.canvas = QgsMapCanvas()
-
-    @staticmethod
-    def new():
-        return HMapCanvas(None)
-    
-    def set_extent(self, eswn: list[float]):
-        self.canvas.setExtent(QgsRectangle(eswn[0], eswn[1], eswn[2], eswn[3]))
-
-    # def set_extent(self, extent: QgsRectangle):
-    #     self.canvas.setExtent(extent)
-
-    def add_geometry(self, geometry: HGeometry, color: str = 'red', width: float = 2.0):
-        if isinstance(geometry, HPoint):
-            r = QgsRubberBand(self.canvas, Qgis.GeometryType.Point)
-            r.addGeometry(QgsGeometry(geometry.geometry.clone()))
-            r.setColor(QColor(color))
-            r.setWidth(width)
-        elif isinstance(geometry, HMultiPoint):
-            r = QgsRubberBand(self.canvas, Qgis.GeometryType.Point)
-            for point in geometry.geometries():
-                r.addGeometry(QgsGeometry(point.geometry.clone()))
-            r.setColor(QColor(color))
-            r.setWidth(width)
-        elif isinstance(geometry, HLineString):
-            r = QgsRubberBand(self.canvas, Qgis.GeometryType.Line)
-            r.setColor(QColor(color))
-            r.setWidth(width)
-            r.addGeometry(QgsGeometry(geometry.geometry.clone()))
-        elif isinstance(geometry, HMultiLineString):
-            r = QgsRubberBand(self.canvas, Qgis.GeometryType.Line)
-            r.setColor(QColor(color))
-            r.setWidth(width)
-            for line in geometry.geometries():
-                r.addGeometry(QgsGeometry(line.geometry.clone()))
-        elif isinstance(geometry, HPolygon):
-            r = QgsRubberBand(self.canvas, Qgis.GeometryType.Polygon)
-            r.addGeometry(QgsGeometry(geometry.geometry.clone()))
-            fillColor = QColor(color)
-            fillColor.setAlphaF(0.5)
-            r.setColor(fillColor)
-            strokeColor = QColor(color)
-            r.setStrokeColor(strokeColor)
-            r.setWidth(width)
-        elif isinstance(geometry, HMultiPolygon):
-            r = QgsRubberBand(self.canvas, Qgis.GeometryType.Polygon)
-            for poly in geometry.geometries():
-                r.addGeometry(QgsGeometry(poly.geometry.clone()))
-            fillColor = QColor(color)
-            fillColor.setAlphaF(0.5)
-            r.setColor(fillColor)
-            strokeColor = QColor(color)
-            r.setStrokeColor(strokeColor)
-            r.setWidth(width)
-
-    def remove_all_geometries(self):
-        if self.iface:
-            for item in self.iface.mapCanvas().scene().items():
-                if isinstance(item, QgsRubberBand):
-                    self.iface.mapCanvas().scene().removeItem(item)
-        else:
-            raise ValueError("Cannot remove geometries from a non-iface map canvas")
-            
-
-    def show(self):
-        self.canvas.show()
 
 
 class HCrs:
@@ -556,9 +484,17 @@ class HFeature:
         string = f"Geometry: {wkt} \nAttributes: {self.attributes}"
         return string
 
-class HVectorLayer:
-    def __init__(self, layer: QgsVectorLayer, isReadOnly: bool):
+class HLayer:
+    def __init__(self, layer) -> None:
         self.layer = layer
+
+class HRasterLayer(HLayer):
+    def __init__(self, layer: QgsRasterLayer):
+        super().__init__(layer)
+
+class HVectorLayer(HLayer):
+    def __init__(self, layer: QgsVectorLayer, isReadOnly: bool):
+        super().__init__(layer)
         self.isReadOnly = isReadOnly
         self.prjcode = self.layer.crs().authid()
         self.fields = {}
@@ -737,48 +673,17 @@ class HVectorLayer:
         Set the style of the layer.
         """
         renderer = self.layer.renderer()
-        if style.type == "line":
-            properties = {
-                'line_color': style.properties['stroke_color'],
-                'line_width': style.properties['stroke_width'],
-                'capstyle': 'round',
-                'joinstyle': 'round'
-            }
-            symbol = QgsLineSymbol.createSimple(properties)
-            if renderer is None:
-                renderer = QgsSingleSymbolRenderer(symbol)
-                self.layer.setRenderer(renderer)
-            renderer.setSymbol(symbol)
-        elif style.type == "point":
-            properties = {
-                'name': style.properties['marker_name'],
-                'size': style.properties['marker_size'],
-                'angle': style.properties['marker_angle'],
-                'color': style.properties['fill_color'],
-                'outline_color': style.properties['stroke_color'],
-                'outline_width': style.properties['stroke_width']
-            }
-            symbol = QgsMarkerSymbol.createSimple(properties)
-            if renderer is None:
-                renderer = QgsSingleSymbolRenderer(symbol)
-                self.layer.setRenderer(renderer)
-            renderer.setSymbol(symbol)
-        elif style.type == "polygon":
-            properties = {
-                'color': style.properties['fill_color'],
-                'outline_color': style.properties['stroke_color'],
-                'outline_width': style.properties['stroke_width'],
-                'capstyle': 'round',
-                'joinstyle': 'round'
-            }
-            symbol = QgsFillSymbol.createSimple(properties)
-            if renderer is None:
-                renderer = QgsSingleSymbolRenderer(symbol)
-                self.layer.setRenderer(renderer)
-            renderer.setSymbol(symbol)
-        else:
-            raise ValueError(f"Unsupported style type: {style.type}")
+        symbol = self.style_to_symbol(style)
+        if renderer is None:
+            renderer = QgsSingleSymbolRenderer(symbol)
+            self.layer.setRenderer(renderer)
+        renderer.setSymbol(symbol)
 
+        self.set_labels(style)
+        
+        self.layer.triggerRepaint()
+
+    def set_labels(self, style:HStyle):
         # if labels are set, add them
         if 'label_field' in style.properties:
             field = style.properties['label_field']
@@ -842,7 +747,140 @@ class HVectorLayer:
             self.layer.setLabelsEnabled(True)
             self.layer.setLabeling(labels)
 
+
+    def style_to_symbol(self, style):
+        symbol = None
+        if style.type == "line":
+            properties = {
+                'line_color': style.properties['stroke_color'],
+                'line_width': style.properties['stroke_width'],
+                'capstyle': 'round',
+                'joinstyle': 'round'
+            }
+            symbol = QgsLineSymbol.createSimple(properties)
+        elif style.type == "point":
+            properties = {
+                'name': style.properties['marker_name'],
+                'size': style.properties['marker_size'],
+                'angle': style.properties['marker_angle'],
+                'color': style.properties['fill_color'],
+                'outline_color': style.properties['stroke_color'],
+                'outline_width': style.properties['stroke_width']
+            }
+            symbol = QgsMarkerSymbol.createSimple(properties)
+        elif style.type == "polygon":
+            properties = {
+                'color': style.properties['fill_color'],
+                'outline_color': style.properties['stroke_color'],
+                'outline_width': style.properties['stroke_width'],
+                'capstyle': 'round',
+                'joinstyle': 'round'
+            }
+            symbol = QgsFillSymbol.createSimple(properties)
+        else:
+            raise ValueError(f"Unsupported style type: {style.type}")
+        return symbol
+
+    def set_graduated_style(self, field: str, ranges: list[tuple[float, float]], styles_list: list[HStyle], labelstyle: HStyle = None):
+        """
+        Set a graduated style to the layer.
+        """
+        renderer = QgsGraduatedSymbolRenderer(field)
+    
+        for (range, style) in zip(ranges, styles_list):
+            min = range[0]
+            max = range[1]
+            classificationRange = QgsClassificationRange(f'{min} < {field} < {max}', 
+                min, max)
+            
+            symbol = self.style_to_symbol(style)
+            rendererRange = QgsRendererRange(classificationRange, symbol)
+            renderer.addClassRange(rendererRange)
+
+        if labelstyle:
+            self.set_labels(labelstyle)
+
+        self.layer.setRenderer(renderer)
+
         self.layer.triggerRepaint()
+
+class HMapCanvas():
+    def __init__(self, iface: QgisInterface = None):
+        if iface:
+            self.iface = iface
+            self.canvas = iface.mapCanvas()
+        else:
+            self.canvas = QgsMapCanvas()
+
+    @staticmethod
+    def new():
+        return HMapCanvas(None)
+    
+    def set_extent(self, eswn: list[float]):
+        self.canvas.setExtent(QgsRectangle(eswn[0], eswn[1], eswn[2], eswn[3]))
+
+    def set_layers(self, layers: list[HVectorLayer]):
+        self.canvas.setLayers([layer.layer for layer in layers])
+
+    def add_geometry(self, geometry: HGeometry, color: str = 'red', width: int = 2):
+        if isinstance(geometry, HPoint):
+            r = QgsRubberBand(self.canvas, Qgis.GeometryType.Point)
+            r.addGeometry(QgsGeometry(geometry.geometry.clone()))
+            fillColor = QColor(color)
+            fillColor.setAlphaF(0.5)
+            r.setColor(fillColor)
+            strokeColor = QColor(color)
+            r.setStrokeColor(strokeColor)
+            
+            r.setWidth(width)
+        elif isinstance(geometry, HMultiPoint):
+            r = QgsRubberBand(self.canvas, Qgis.GeometryType.Point)
+            for point in geometry.geometries():
+                r.addGeometry(QgsGeometry(point.geometry.clone()))
+            r.setFillColor(QColor(color))
+            r.setWidth(width)
+        elif isinstance(geometry, HLineString):
+            r = QgsRubberBand(self.canvas, Qgis.GeometryType.Line)
+            r.setColor(QColor(color))
+            r.setWidth(width)
+            r.addGeometry(QgsGeometry(geometry.geometry.clone()))
+        elif isinstance(geometry, HMultiLineString):
+            r = QgsRubberBand(self.canvas, Qgis.GeometryType.Line)
+            r.setColor(QColor(color))
+            r.setWidth(width)
+            for line in geometry.geometries():
+                r.addGeometry(QgsGeometry(line.geometry.clone()))
+        elif isinstance(geometry, HPolygon):
+            r = QgsRubberBand(self.canvas, Qgis.GeometryType.Polygon)
+            r.addGeometry(QgsGeometry(geometry.geometry.clone()))
+            fillColor = QColor(color)
+            fillColor.setAlphaF(0.5)
+            r.setColor(fillColor)
+            strokeColor = QColor(color)
+            r.setStrokeColor(strokeColor)
+            r.setWidth(width)
+        elif isinstance(geometry, HMultiPolygon):
+            r = QgsRubberBand(self.canvas, Qgis.GeometryType.Polygon)
+            for poly in geometry.geometries():
+                r.addGeometry(QgsGeometry(poly.geometry.clone()))
+            fillColor = QColor(color)
+            fillColor.setAlphaF(0.5)
+            r.setColor(fillColor)
+            strokeColor = QColor(color)
+            r.setStrokeColor(strokeColor)
+            r.setWidth(width)
+
+    def remove_all_geometries(self):
+        if self.iface:
+            for item in self.iface.mapCanvas().scene().items():
+                if isinstance(item, QgsRubberBand):
+                    self.iface.mapCanvas().scene().removeItem(item)
+        else:
+            raise ValueError("Cannot remove geometries from a non-iface map canvas")
+            
+
+    def show(self):
+        self.canvas.show()
 
     
 class HMap:
@@ -851,14 +889,14 @@ class HMap:
     """
 
     @staticmethod
-    def add_layer(layer: HVectorLayer):
+    def add_layer(layer: HLayer):
         """
         Add a layer to the current active map.
         """
         QgsProject.instance().addMapLayer(layer.layer)
 
     @staticmethod
-    def remove_layer(layer: HVectorLayer):
+    def remove_layer(layer: HLayer):
         """
         Remove a layer from the current active map.
         """
@@ -884,14 +922,30 @@ class HMap:
                 QgsProject.instance().removeMapLayer(layer.id())
 
     @staticmethod
-    def layers_by_name(name: str) -> list[HVectorLayer]:
+    def layers_by_name(name: str) -> list[HLayer]:
         """
         Get layers by name.
         """
         layers = []
         for layer in QgsProject.instance().mapLayersByName(name):
-            layers.append(HVectorLayer(layer, True))
+            layers.append(HLayer(layer))
         return layers
+    
+    @staticmethod
+    def get_osm_layer() -> HRasterLayer:
+        """
+        Add an OpenStreetMap layer to the current active map.
+        """
+        return HRasterLayer(QgsRasterLayer("type=xyz&url=http://tile.openstreetmap.org/{z}/{x}/{y}.png", "OpenStreetMap", "wms"))
+        
+    
+    @staticmethod
+    def get_tms_layer(url: str, name: str) -> HRasterLayer:
+        """
+        Add a TMS layer to the current active map.
+        """
+        return HRasterLayer(QgsRasterLayer(f"type=xyz&url={url}", name, "wms"))
+
 
 
 class HPrinter:
@@ -932,8 +986,12 @@ class HPrinter:
         self.map = QgsLayoutItemMap(self.layout)
         self.map.attemptMove(QgsLayoutPoint(x,y, QgsUnitTypes.LayoutMillimeters))
         self.map.attemptResize(QgsLayoutSize(width, height, QgsUnitTypes.LayoutMillimeters))
-        self.map.setExtent(QgsRectangle(0, 0, width, height)) 
-        self.map.zoomToExtent(self.iface.mapCanvas().extent())
+        self.map.setExtent(QgsRectangle(0, 0, width, height))
+
+        ext = self.iface.mapCanvas().extent()
+        if extent:
+            ext = QgsRectangle(extent[0], extent[1], extent[2], extent[3])
+        self.map.zoomToExtent(ext)
         self.map.setFrameEnabled(frame)
         self.layout.addLayoutItem(self.map)
 
@@ -955,10 +1013,19 @@ class HPrinter:
         """
         Add a scalebar to the layout.
         """
+        self.checkMap()
+        scalebarTypes = ['Single Box', 'Double Box', 'Line Ticks Middle', 'Line Ticks Down', 'Line Ticks Up', 'Stepped Line', 'Hollow', 'Numeric']
+        if not style in scalebarTypes:
+            raise ValueError(f"Unsupported scalebar style: {style}. Supported types are: {scalebarTypes}")
+
         scalebar = QgsLayoutItemScaleBar(self.layout)
         scalebar.setStyle(style) #'Line Ticks Up')
         scalebar.setLinkedMap(self.map)
-        scalebar.setFont(QFont(font, font_size))
+
+        f = QFont()
+        f.setFamily(font)
+        f.setPointSize(font_size)
+        scalebar.setFont(f)
         # scalebar.applyDefaultSize()
         if units == "m":
             scalebar.setUnits(QgsUnitTypes.DistanceMeters)
@@ -975,19 +1042,24 @@ class HPrinter:
         scalebar.attemptMove(QgsLayoutPoint(x,y, QgsUnitTypes.LayoutMillimeters))
         self.layout.addLayoutItem(scalebar)
 
-    def add_label(self, x:int = 10, y:int = 10, text:str = "a label", font:str = "Arial", font_size:int = 12, bold:bool = False, italic:bool = False):
+    def add_label(self, x:int = 10, y:int = 10, text:str = "a label", font:str = "Arial", font_size:int = 12, bold:bool = False, italic:bool = False, underline:bool = False):
         """
         Add a label to the layout.
         """
         label = QgsLayoutItemLabel(self.layout)
         label.setText(text)
-        weight = None
+        
+        f = QFont()
+        f.setFamily(font)
+        f.setPointSize(font_size)
         if bold:
-            weight = QFont.bold
+            f.setBold(True)
         if italic:
-            weight = QFont.italic
+            f.setItalic(True)
+        if underline:
+            f.setUnderline(True)
 
-        label.setFont(QFont(font, font_size, weight))
+        label.setFont(f)
         label.attemptMove(QgsLayoutPoint(x,y, QgsUnitTypes.LayoutMillimeters))
         self.layout.addLayoutItem(label)
 
