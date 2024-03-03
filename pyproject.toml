@@ -1,6 +1,6 @@
 [project]
 name = "pyqgis-scripting-ext"
-version = "0.1.0"
+version = "0.1.1"
 description = "A simple package that tries to make pyQGIS a bit more userfriendly to non programmers."
 authors = [
     {name = "Andrea Antonello" },

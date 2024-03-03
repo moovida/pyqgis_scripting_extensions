@@ -98,20 +98,16 @@ Compatibility table:
 
 | QGIS Version | pyQGIS Scripting Extension |
 |---------------|---------------------------|
-| Prizren          | 0.1.0                     |
+| Prizren          | 0.1.1                     |
 
 ## Installation
 
-At the time being the lib is available in pypi. You can install it with pip:
-
-```bash
-pip install pyqgis-scripting-ext
-```
+At the time being the lib is available in pypi.
 
 To make sure you install it using the python used by QGIS, you can run directly from the QGIS python console:
 
 ```python
-import subprocess
-subprocess.run(["pip", "install", "pyqgis-scripting-ext"])
+import pip
+pip.main(['install', 'pyqgis-scripting-ext'])
 ```
 
