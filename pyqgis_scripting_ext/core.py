@@ -422,7 +422,7 @@ class HFill(HStyle):
             self.type = "polygon"
 
 class HLabel(HStyle):
-    def __init__(self, font: str = "Arial", color: str = 'black', size: float = 10.0, field:str = None, \
+    def __init__(self, field:str = None, font: str = "Arial", color: str = 'black', size: float = 10.0,  \
                  xoffset: float = 0.0, yoffset: float = 0.0, along_line: bool = False, bold: bool = False, italic: bool = False):    
         self.font = font
         self.color = color
@@ -492,7 +492,14 @@ class HRasterLayer(HLayer):
     def __init__(self, layer: QgsRasterLayer):
         super().__init__(layer)
 
+    
+
 class HVectorLayer(HLayer):
+    """
+    A wrapper for a vector layer.
+
+    Allows to open or create new memory layers.
+    """
     def __init__(self, layer: QgsVectorLayer, isReadOnly: bool):
         super().__init__(layer)
         self.isReadOnly = isReadOnly
@@ -715,7 +722,7 @@ class HVectorLayer(HLayer):
                 buffer = QgsTextBufferSettings()
                 buffer.setEnabled(True)
                 buffer.setSize(style.properties['halo_width'])
-                buffer.setColor(QColor(style.properties['halo_color']))
+                buffer.setColor(QColor(style.properties['halo_color'] or "white"))
                 format.setBuffer(buffer)
 
                 # create a halo around the text
@@ -733,7 +740,7 @@ class HVectorLayer(HLayer):
             # label positioning with offsets
             if style.type == "line" and 'label_along_line' in style.properties:
                 settings.placement = QgsPalLayerSettings.Line
-            else: 
+            elif style.type == "point": 
                 settings.placement = QgsPalLayerSettings.OverPoint
                 settings.xOffset = 0.0
                 settings.yOffset = 0.0
@@ -752,27 +759,27 @@ class HVectorLayer(HLayer):
         symbol = None
         if style.type == "line":
             properties = {
-                'line_color': style.properties['stroke_color'],
-                'line_width': style.properties['stroke_width'],
+                'line_color': style.properties.get('stroke_color') or "black",
+                'line_width': style.properties.get('stroke_width') or 1,
                 'capstyle': 'round',
                 'joinstyle': 'round'
             }
             symbol = QgsLineSymbol.createSimple(properties)
         elif style.type == "point":
             properties = {
-                'name': style.properties['marker_name'],
-                'size': style.properties['marker_size'],
-                'angle': style.properties['marker_angle'],
-                'color': style.properties['fill_color'],
-                'outline_color': style.properties['stroke_color'],
-                'outline_width': style.properties['stroke_width']
+                'name': style.properties.get('marker_name') or "circle",
+                'size': style.properties.get('marker_size') or 10,
+                'angle': style.properties.get('marker_angle') or 0,
+                'color': style.properties.get('fill_color') or "red"  ,
+                'outline_color': style.properties.get('stroke_color') or "black",
+                'outline_width': style.properties.get('stroke_width') or 1
             }
             symbol = QgsMarkerSymbol.createSimple(properties)
         elif style.type == "polygon":
             properties = {
-                'color': style.properties['fill_color'],
-                'outline_color': style.properties['stroke_color'],
-                'outline_width': style.properties['stroke_width'],
+                'color': style.properties.get('fill_color') or "red",
+                'outline_color': style.properties.get('stroke_color') or "black",
+                'outline_width': style.properties.get('stroke_width') or 1,
                 'capstyle': 'round',
                 'joinstyle': 'round'
             }
@@ -790,8 +797,15 @@ class HVectorLayer(HLayer):
         for (range, style) in zip(ranges, styles_list):
             min = range[0]
             max = range[1]
-            classificationRange = QgsClassificationRange(f'{min} < {field} < {max}', 
-                min, max)
+            label = ""
+            if min != float('-inf'):
+                label = f'{min} < '
+            label += field
+            if max != float('inf'):
+                label += f' < {max}'
+            if min == max:
+                label = f'{field} = {min}'
+            classificationRange = QgsClassificationRange(label, min, max)
             
             symbol = self.style_to_symbol(style)
             rendererRange = QgsRendererRange(classificationRange, symbol)
